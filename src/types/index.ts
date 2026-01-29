@@ -1,4 +1,9 @@
 // Type definition exports
-// Add type exports here as they are created
-// Example: export type { GameState } from './GameState'
-// Example: export type { OreData } from './OreData'
+export {
+  StatType,
+  type BonusSource,
+  BONUS_SOURCE_ORDER,
+  BASE_VALUES,
+  type StatChangedEvent,
+  type StatBreakdown,
+} from './stats'

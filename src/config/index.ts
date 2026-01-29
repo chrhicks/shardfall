@@ -1,4 +1,9 @@
 // Game configuration exports
-// Add config exports here as they are created
-// Example: export { GAME_CONSTANTS } from './constants'
-// Example: export { BALANCE } from './balance'
+export {
+  BlockType,
+  type BlockTypeConfig,
+  BLOCK_CONFIG,
+  HP_SCALING_FACTOR,
+  type DepthTier,
+  DEPTH_TIERS,
+} from './blocks'

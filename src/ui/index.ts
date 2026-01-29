@@ -1,3 +1,4 @@
 // UI component exports
-// Add UI component exports here as they are created
-// Example: export { UpgradePanel } from './UpgradePanel'
+export { StatDebugPanel } from './StatDebugPanel'
+export { CaveFrame, type CaveFrameConfig } from './CaveFrame'
+export { DepthIndicator, type DepthIndicatorConfig } from './DepthIndicator'

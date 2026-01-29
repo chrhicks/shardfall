@@ -1,4 +1,10 @@
 // Game system exports
-// Add system exports here as they are created
-// Example: export { MiningSystem } from './MiningSystem'
-// Example: export { SaveSystem } from './SaveSystem'
+export { StatSystem } from './StatSystem'
+export {
+  MiningGrid,
+  type MiningGridConfig,
+  type MiningGridEventType,
+  type DepthChangeEvent,
+  type BlockDestroyedEvent,
+  type RowClearedEvent,
+} from './MiningGrid'
