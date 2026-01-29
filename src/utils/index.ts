@@ -14,7 +14,10 @@ export {
   playBlockBreakEffect,
   playBlockHitEffect,
   resetBlockEffects,
+  showDamageNumber,
+  flashWhite,
   type BlockBreakEffectConfig,
+  type DamageNumberConfig,
 } from './BlockEffects'
 
 // Random utilities

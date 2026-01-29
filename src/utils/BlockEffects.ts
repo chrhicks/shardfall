@@ -158,3 +158,107 @@ export function playBlockHitEffect(
 export function resetBlockEffects(): void {
   particleTextureCreated = false
 }
+
+/**
+ * Configuration for floating damage number
+ */
+export interface DamageNumberConfig {
+  /** Duration of float animation in ms (default: 500) */
+  duration?: number
+  /** How far to float upward in pixels (default: 30) */
+  floatDistance?: number
+  /** Font size (default: '16px') */
+  fontSize?: string
+  /** Text color (default: '#ffffff') */
+  color?: string
+  /** Whether to add a critical hit style (larger, yellow) */
+  isCritical?: boolean
+}
+
+const DEFAULT_DAMAGE_CONFIG: Required<Omit<DamageNumberConfig, 'isCritical'>> = {
+  duration: 500,
+  floatDistance: 30,
+  fontSize: '16px',
+  color: '#ffffff',
+}
+
+/**
+ * Show a floating damage number that rises and fades out.
+ *
+ * @param scene - Phaser scene
+ * @param x - World X position
+ * @param y - World Y position
+ * @param damage - Damage amount to display
+ * @param config - Optional configuration
+ */
+export function showDamageNumber(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  damage: number,
+  config: DamageNumberConfig = {}
+): void {
+  const cfg = { ...DEFAULT_DAMAGE_CONFIG, ...config }
+
+  // Format damage (round to 1 decimal if needed)
+  const damageText = damage % 1 === 0 ? damage.toString() : damage.toFixed(1)
+
+  // Create text with style
+  const style: Phaser.Types.GameObjects.Text.TextStyle = {
+    fontFamily: 'Arial Black',
+    fontSize: config.isCritical ? '24px' : cfg.fontSize,
+    color: config.isCritical ? '#ffff00' : cfg.color,
+    stroke: '#000000',
+    strokeThickness: config.isCritical ? 4 : 2,
+  }
+
+  const text = scene.add.text(x, y, damageText, style)
+  text.setOrigin(0.5)
+  text.setDepth(100) // Above everything
+
+  // Add slight random horizontal offset for visual variety
+  const xOffset = Phaser.Math.Between(-10, 10)
+
+  // Float up and fade animation
+  scene.tweens.add({
+    targets: text,
+    y: y - cfg.floatDistance,
+    x: x + xOffset,
+    alpha: { from: 1, to: 0 },
+    duration: cfg.duration,
+    ease: 'Power2',
+    onComplete: () => {
+      text.destroy()
+    },
+  })
+
+  // Scale pop for critical hits
+  if (config.isCritical) {
+    scene.tweens.add({
+      targets: text,
+      scale: { from: 1.5, to: 1 },
+      duration: 150,
+      ease: 'Back.easeOut',
+    })
+  }
+}
+
+/**
+ * Flash a game object white briefly to indicate a hit.
+ *
+ * @param scene - Phaser scene
+ * @param target - The game object to flash (must support setTint)
+ * @param duration - Flash duration in ms (default: 50)
+ */
+export function flashWhite(
+  scene: Phaser.Scene,
+  target: Phaser.GameObjects.Rectangle,
+  duration = 50
+): void {
+  const originalColor = target.fillColor
+  target.setFillStyle(0xffffff)
+
+  scene.time.delayedCall(duration, () => {
+    target.setFillStyle(originalColor)
+  })
+}

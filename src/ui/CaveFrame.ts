@@ -16,6 +16,8 @@ export interface CaveFrameConfig {
   gridTop: number
   /** Bottom of the grid area */
   gridBottom: number
+  /** Extra height below grid for miner gap (default: 0) */
+  extraBottom?: number
   /** Width of the cave frame border (default: 20) */
   borderWidth?: number
   /** Whether to show torches (default: true) */
@@ -23,6 +25,7 @@ export interface CaveFrameConfig {
 }
 
 const DEFAULT_CONFIG = {
+  extraBottom: 0,
   borderWidth: 20,
   showTorches: true,
 }
@@ -59,11 +62,12 @@ export class CaveFrame {
    * Draw the cave frame borders
    */
   private drawFrame(): void {
-    const { gridLeft, gridRight, gridTop, gridBottom, borderWidth } = this.config
+    const { gridLeft, gridRight, gridTop, gridBottom, borderWidth, extraBottom } = this.config
 
     const frameLeft = gridLeft - borderWidth
     const frameRight = gridRight + borderWidth
     const frameTop = gridTop - borderWidth
+    const gridBottomExtended = gridBottom + extraBottom
 
     // Rocky border color
     const rockColor = 0x2a2a3e
@@ -74,13 +78,33 @@ export class CaveFrame {
     this.graphics.fillRect(frameLeft, frameTop, frameRight - frameLeft, borderWidth)
 
     // Bottom border
-    this.graphics.fillRect(frameLeft, gridBottom, frameRight - frameLeft, borderWidth)
+    this.graphics.fillRect(frameLeft, gridBottomExtended, frameRight - frameLeft, borderWidth)
 
     // Left border (rocky texture simulation)
-    this.drawRockyBorder(frameLeft, gridTop, borderWidth, gridBottom - gridTop, 'left')
+    this.drawRockyBorder(frameLeft, gridTop, borderWidth, gridBottomExtended - gridTop, 'left')
 
     // Right border
-    this.drawRockyBorder(gridRight, gridTop, borderWidth, gridBottom - gridTop, 'right')
+    this.drawRockyBorder(gridRight, gridTop, borderWidth, gridBottomExtended - gridTop, 'right')
+
+    // Floor ledge for miner gap
+    if (extraBottom > 0) {
+      const floorHeight = Math.min(12, borderWidth)
+      const floorY = gridBottomExtended - floorHeight
+      this.graphics.fillStyle(0x1f1f2f, 1)
+      this.graphics.fillRect(
+        gridLeft - 2,
+        floorY,
+        gridRight - gridLeft + 4,
+        floorHeight
+      )
+      this.graphics.lineStyle(2, 0x0f0f18, 1)
+      this.graphics.strokeRect(
+        gridLeft - 2,
+        floorY,
+        gridRight - gridLeft + 4,
+        floorHeight
+      )
+    }
 
     // Inner stroke around grid
     this.graphics.lineStyle(3, rockColor, 1)

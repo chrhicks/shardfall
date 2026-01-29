@@ -16,13 +16,23 @@ import { StatType } from '../types/stats'
 import { StatDebugPanel } from '../ui/StatDebugPanel'
 import { CaveFrame } from '../ui/CaveFrame'
 import { DepthIndicator } from '../ui/DepthIndicator'
+import { TargetIndicator } from '../ui/TargetIndicator'
+import { Miner } from '../objects/Miner'
+import { AxeProjectile, AxeProjectilePool } from '../objects/AxeProjectile'
+import { Block } from '../objects/Block'
+import { showDamageNumber, playBlockHitEffect, flashWhite } from '../utils/BlockEffects'
 
 export class DevScene extends Scene {
   private miningGrid!: MiningGrid
+  private miner!: Miner
+  private axeProjectiles!: AxeProjectilePool
+  private targetIndicator!: TargetIndicator
   private caveFrame!: CaveFrame
   private depthIndicator!: DepthIndicator
   private statDebugPanel!: StatDebugPanel
   private infoText!: Phaser.GameObjects.Text
+  private axeLane?: Phaser.GameObjects.Rectangle
+  private blockSize = 64
 
   constructor() {
     super('DevScene')
@@ -46,8 +56,13 @@ export class DevScene extends Scene {
     const gridWidth = 5
     const visibleRows = 8
     const blockSize = 64
+    this.blockSize = blockSize
     const centerX = 350
     const topY = 80
+    const gridGap = 48
+    const minerOffsetY = 20
+    const minerFloorOffset = 24
+    const frameExtraBottom = gridGap + minerOffsetY + minerFloorOffset
 
     const gridLeft = centerX - (gridWidth * blockSize) / 2
     const gridRight = gridLeft + gridWidth * blockSize
@@ -60,6 +75,7 @@ export class DevScene extends Scene {
       gridRight,
       gridTop,
       gridBottom,
+      extraBottom: frameExtraBottom,
     })
 
     // Create the mining grid (higher depth, in front)
@@ -73,6 +89,55 @@ export class DevScene extends Scene {
 
     // Get grid bounds for positioning other elements
     const gridBounds = this.miningGrid.getGridBounds()
+
+    // Create projectile pool for throws
+    this.axeProjectiles = new AxeProjectilePool(this, { size: 6, depth: 18 })
+
+    // Create miner centered below the grid
+    const minerX = gridBounds.left + gridBounds.width / 2
+    const minerY = gridBounds.bottom + gridGap + minerOffsetY
+    this.miner = new Miner(this, {
+      x: minerX,
+      y: minerY,
+      axePool: this.axeProjectiles,
+    })
+
+    // Subtle lane between miner and grid for axe travel
+    const laneTop = gridBounds.bottom + 4
+    const laneBottom = minerY - 24
+    const laneHeight = Math.max(8, laneBottom - laneTop)
+    this.axeLane = this.add.rectangle(
+      gridBounds.left + gridBounds.width / 2,
+      laneTop + laneHeight / 2,
+      gridBounds.width,
+      laneHeight,
+      0xffffff,
+      0.06
+    )
+    this.axeLane.setDepth(7)
+
+    // Create target indicator for hover highlight
+    this.targetIndicator = new TargetIndicator(this, {
+      size: blockSize,
+    })
+
+    // Wire up block click to miner mining action with visual feedback
+    this.miningGrid.onBlockClicked((event) => {
+      const throwResult = this.miner.tryThrow()
+      if (!throwResult) return
+
+      const target = this.getBlockWorldCenter(event.block, event.worldX, event.worldY)
+      this.launchAxeBounce(throwResult.projectile, throwResult.origin, target, event.block)
+    })
+
+    // Wire up block hover to target indicator
+    this.miningGrid.onBlockHovered((event) => {
+      if (event.block) {
+        this.targetIndicator.show(event.worldX, event.worldY)
+      } else {
+        this.targetIndicator.hide()
+      }
+    })
 
     // Depth indicator
     this.depthIndicator = new DepthIndicator(this, {
@@ -89,8 +154,9 @@ export class DevScene extends Scene {
     this.statDebugPanel = new StatDebugPanel(this)
 
     // Info text
+    const infoY = Math.min(minerY + 60, 720)
     this.infoText = this.add
-      .text(512, 700, 'Click blocks to mine! Press D for stat debug', {
+      .text(512, infoY, 'Click blocks to mine! Press D for stat debug', {
         fontFamily: 'Arial',
         fontSize: '16px',
         color: '#888888',
@@ -102,7 +168,7 @@ export class DevScene extends Scene {
 
     // Instructions
     this.add
-      .text(512, 740, 'Clear bottom row to scroll deeper', {
+      .text(512, Math.min(infoY + 32, 748), 'Clear bottom row to scroll deeper', {
         fontFamily: 'Arial',
         fontSize: '14px',
         color: '#666666',
@@ -273,10 +339,244 @@ export class DevScene extends Scene {
     })
   }
 
+  private launchAxeBounce(
+    projectile: AxeProjectile,
+    origin: { x: number; y: number },
+    target: { x: number; y: number },
+    initialBlock: Block
+  ): void {
+    const maxRicochets = 3
+    const state = { ricochetsLeft: maxRicochets, lastBlockId: initialBlock.id }
+
+    const speed = this.miner.getSpeed()
+    const direction = this.normalizeVector(target.x - origin.x, target.y - origin.y)
+
+    this.travelProjectile(projectile, origin, target, speed, () => {
+      this.applyAxeHit(initialBlock, target.x, target.y)
+      const reflected = this.reflectVector(direction, this.getImpactNormal(direction))
+      const start = this.offsetPoint(target, reflected)
+      this.continueBounce(projectile, start, reflected, speed, () => this.miner.getPickaxeWorldPosition(), () => {
+        this.axeProjectiles.release(projectile)
+      }, state)
+    })
+  }
+
+  private continueBounce(
+    projectile: AxeProjectile,
+    start: { x: number; y: number },
+    direction: { x: number; y: number },
+    speed: number,
+    getReturnPoint: () => { x: number; y: number },
+    onReturn: () => void,
+    state: { ricochetsLeft: number; lastBlockId: string }
+  ): void {
+    const next = this.findNextCollision(start, direction, getReturnPoint(), state.lastBlockId)
+    if (!next) {
+      this.travelProjectile(projectile, start, getReturnPoint(), speed, onReturn)
+      return
+    }
+
+    if (next.type === 'return') {
+      this.travelProjectile(projectile, start, next.point, speed, onReturn)
+      return
+    }
+
+    if (state.ricochetsLeft <= 0) {
+      this.travelProjectile(projectile, start, getReturnPoint(), speed, onReturn)
+      return
+    }
+
+    state.ricochetsLeft -= 1
+
+    this.travelProjectile(projectile, start, next.point, speed, () => {
+      if (next.type === 'block') {
+        this.applyAxeHit(next.block, next.point.x, next.point.y)
+        state.lastBlockId = next.block.id
+      }
+
+      const reflected = this.reflectVector(direction, next.normal)
+      const nextStart = this.offsetPoint(next.point, reflected)
+      this.continueBounce(
+        projectile,
+        nextStart,
+        reflected,
+        speed,
+        getReturnPoint,
+        onReturn,
+        state
+      )
+    })
+  }
+
+  private travelProjectile(
+    projectile: AxeProjectile,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    speed: number,
+    onComplete: () => void
+  ): void {
+    const duration = AxeProjectile.getTravelDuration(from.x, from.y, to.x, to.y, speed)
+    projectile.launch(from.x, from.y, to.x, to.y, duration, onComplete)
+  }
+
+  private applyAxeHit(block: Block, impactX: number, impactY: number): void {
+    if (block.isDead()) return
+
+    const damage = this.miner.getDamage()
+    const destroyed = block.takeDamage(damage)
+
+    const blockObject = block.gameObject
+    const worldMatrix = blockObject?.getWorldTransformMatrix()
+    const hitX = worldMatrix?.tx ?? impactX
+    const hitY = worldMatrix?.ty ?? impactY
+
+    showDamageNumber(this, hitX, hitY, damage)
+
+    if (!destroyed && block.gameObject) {
+      flashWhite(this, block.gameObject, 50)
+      playBlockHitEffect(this, hitX, hitY, block.baseColor)
+    }
+  }
+
+  private findNextCollision(
+    origin: { x: number; y: number },
+    direction: { x: number; y: number },
+    returnPoint: { x: number; y: number },
+    ignoreBlockId: string
+  ):
+    | { type: 'block'; point: { x: number; y: number }; normal: { x: number; y: number }; block: Block }
+    | { type: 'wall'; point: { x: number; y: number }; normal: { x: number; y: number } }
+    | { type: 'return'; point: { x: number; y: number } }
+    | null {
+    const bounds = this.miningGrid.getGridBounds()
+    const epsilon = 0.0001
+    const candidates: { type: 'wall' | 'return'; t: number; normal?: { x: number; y: number } }[] = []
+
+    if (direction.x < -epsilon) {
+      const t = (bounds.left - origin.x) / direction.x
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: -1, y: 0 } })
+    }
+    if (direction.x > epsilon) {
+      const t = (bounds.right - origin.x) / direction.x
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 1, y: 0 } })
+    }
+    if (direction.y < -epsilon) {
+      const t = (bounds.top - origin.y) / direction.y
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 0, y: -1 } })
+    }
+    if (direction.y > epsilon) {
+      const t = (returnPoint.y - origin.y) / direction.y
+      if (t > 0) {
+        const returnX = origin.x + direction.x * t
+        if (returnX >= bounds.left - this.blockSize && returnX <= bounds.right + this.blockSize) {
+          candidates.push({ type: 'return', t })
+        }
+      }
+    }
+
+    const maxCandidate = candidates.reduce((min, current) => Math.min(min, current.t), Number.POSITIVE_INFINITY)
+    const blockHit = this.findFirstBlockHit(origin, direction, Math.min(maxCandidate, bounds.height * 3), ignoreBlockId)
+
+    if (blockHit) {
+      return {
+        type: 'block',
+        point: blockHit.point,
+        normal: this.getImpactNormal(direction),
+        block: blockHit.block,
+      }
+    }
+
+    if (!candidates.length) return null
+
+    const nearest = candidates.reduce((min, current) => (current.t < min.t ? current : min))
+    const point = {
+      x: origin.x + direction.x * nearest.t,
+      y: origin.y + direction.y * nearest.t,
+    }
+
+    if (nearest.type === 'return') {
+      return { type: 'return', point }
+    }
+
+    return {
+      type: 'wall',
+      point,
+      normal: nearest.normal ?? { x: 0, y: 0 },
+    }
+  }
+
+  private findFirstBlockHit(
+    origin: { x: number; y: number },
+    direction: { x: number; y: number },
+    maxDistance: number,
+    ignoreBlockId: string
+  ): { block: Block; point: { x: number; y: number } } | null {
+    const bounds = this.miningGrid.getGridBounds()
+    const step = Math.max(6, this.blockSize / 4)
+
+    for (let dist = step; dist <= maxDistance; dist += step) {
+      const x = origin.x + direction.x * dist
+      const y = origin.y + direction.y * dist
+
+      if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) {
+        continue
+      }
+
+      const col = Math.floor((x - bounds.left) / this.blockSize)
+      const row = Math.floor((y - bounds.top) / this.blockSize)
+      const block = this.miningGrid.getBlockAt(col, row)
+      if (!block || block.isDead() || block.id === ignoreBlockId) continue
+
+      const centerX = bounds.left + col * this.blockSize + this.blockSize / 2
+      const centerY = bounds.top + row * this.blockSize + this.blockSize / 2
+      return { block, point: { x: centerX, y: centerY } }
+    }
+
+    return null
+  }
+
+  private getBlockWorldCenter(block: Block, fallbackX: number, fallbackY: number): { x: number; y: number } {
+    const blockObject = block.gameObject
+    const worldMatrix = blockObject?.getWorldTransformMatrix()
+    return {
+      x: worldMatrix?.tx ?? fallbackX,
+      y: worldMatrix?.ty ?? fallbackY,
+    }
+  }
+
+  private normalizeVector(x: number, y: number): { x: number; y: number } {
+    const length = Math.hypot(x, y)
+    if (length <= 0.0001) return { x: 0, y: -1 }
+    return { x: x / length, y: y / length }
+  }
+
+  private reflectVector(direction: { x: number; y: number }, normal: { x: number; y: number }): { x: number; y: number } {
+    const dot = direction.x * normal.x + direction.y * normal.y
+    return {
+      x: direction.x - 2 * dot * normal.x,
+      y: direction.y - 2 * dot * normal.y,
+    }
+  }
+
+  private getImpactNormal(direction: { x: number; y: number }): { x: number; y: number } {
+    if (Math.abs(direction.x) > Math.abs(direction.y)) {
+      return { x: Math.sign(direction.x), y: 0 }
+    }
+    return { x: 0, y: Math.sign(direction.y) }
+  }
+
+  private offsetPoint(point: { x: number; y: number }, direction: { x: number; y: number }): { x: number; y: number } {
+    return { x: point.x + direction.x * 2, y: point.y + direction.y * 2 }
+  }
+
   shutdown() {
     this.miningGrid.destroy()
+    this.miner.destroy()
+    this.axeProjectiles.destroy()
+    this.targetIndicator.destroy()
     this.caveFrame.destroy()
     this.depthIndicator.destroy()
     this.statDebugPanel.destroy()
+    this.axeLane?.destroy()
   }
 }

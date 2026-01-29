@@ -36,7 +36,23 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
 }
 
 /** Event types emitted by MiningGrid */
-export type MiningGridEventType = 'depth-change' | 'block-destroyed' | 'row-cleared'
+export type MiningGridEventType = 'depth-change' | 'block-destroyed' | 'row-cleared' | 'block-clicked' | 'block-hovered'
+
+/** Block clicked event */
+export interface BlockClickedEvent {
+  block: Block
+  worldX: number
+  worldY: number
+}
+
+/** Block hovered event */
+export interface BlockHoveredEvent {
+  block: Block | null
+  worldX: number
+  worldY: number
+  gridCol: number
+  gridRow: number
+}
 
 /** Depth change event */
 export interface DepthChangeEvent {
@@ -57,6 +73,10 @@ export interface RowClearedEvent {
 }
 
 type GridEventListener<T> = (event: T) => void
+
+/** Config for setting up pointer interactions externally */
+export type BlockClickHandler = (event: BlockClickedEvent) => void
+export type BlockHoverHandler = (event: BlockHoveredEvent) => void
 
 /**
  * MiningGrid manages the block data structure and rendering.
@@ -84,6 +104,12 @@ export class MiningGrid {
   private depthListeners: Set<GridEventListener<DepthChangeEvent>> = new Set()
   private blockDestroyedListeners: Set<GridEventListener<BlockDestroyedEvent>> = new Set()
   private rowClearedListeners: Set<GridEventListener<RowClearedEvent>> = new Set()
+  private blockClickedListeners: Set<GridEventListener<BlockClickedEvent>> = new Set()
+  private blockHoveredListeners: Set<GridEventListener<BlockHoveredEvent>> = new Set()
+
+  /** Currently hovered block position */
+  private hoveredCol = -1
+  private hoveredRow = -1
 
   constructor(scene: Scene, config: MiningGridConfig = {}) {
     this.scene = scene
@@ -161,7 +187,7 @@ export class MiningGrid {
   /**
    * Generate a new row of blocks at the given row index
    */
-  private generateRow(rowIndex: number): void {
+  private generateRow(rowIndex: number, insertAtTop = false): void {
     const depth = this._currentDepth + rowIndex
     const row: (Block | null)[] = []
 
@@ -179,7 +205,9 @@ export class MiningGrid {
     }
 
     // Insert at the correct position
-    if (rowIndex >= this.blocks.length) {
+    if (insertAtTop) {
+      this.blocks.unshift(row)
+    } else if (rowIndex >= this.blocks.length) {
       this.blocks.push(row)
     } else {
       this.blocks[rowIndex] = row
@@ -200,7 +228,14 @@ export class MiningGrid {
 
     // Handle destruction
     block.onDestroy(() => {
-      const worldPos = this.getBlockWorldPosition(block.x, block.y)
+      const worldFromObject = this.getBlockWorldPositionFromGameObject(block)
+      // Find the block's current position in the grid (may have shifted due to scrolling)
+      const gridPos =
+        this.findBlockPosition(block) ??
+        (worldFromObject ? this.getGridPositionFromWorld(worldFromObject.x, worldFromObject.y) : null)
+      if (!gridPos) return
+
+      const worldPos = worldFromObject ?? this.getBlockWorldPosition(gridPos.col, gridPos.row)
 
       // Play break effect
       playBlockBreakEffect(this.scene, worldPos.x, worldPos.y, block.baseColor)
@@ -210,9 +245,46 @@ export class MiningGrid {
         listener({ block, worldX: worldPos.x, worldY: worldPos.y })
       }
 
-      // Remove from grid
-      this.removeBlockAt(block.x, block.y)
+      // Remove from grid using current position
+      this.removeBlockAt(gridPos.col, gridPos.row)
     })
+  }
+
+  /**
+   * Get world position for a block using its game object transform
+   */
+  private getBlockWorldPositionFromGameObject(block: Block): { x: number; y: number } | null {
+    if (!block.gameObject) return null
+    const matrix = block.gameObject.getWorldTransformMatrix()
+    return { x: matrix.tx, y: matrix.ty }
+  }
+
+  /**
+   * Convert world position to grid coordinates
+   */
+  private getGridPositionFromWorld(worldX: number, worldY: number): { col: number; row: number } | null {
+    const localX = worldX - this.container.x
+    const localY = worldY - this.container.y
+    const col = Math.round((localX - this.config.blockSize / 2) / this.config.blockSize)
+    const row = Math.round((localY - this.config.blockSize / 2) / this.config.blockSize)
+
+    if (col < 0 || col >= this.config.gridWidth) return null
+    if (row < 0 || row >= this.blocks.length) return null
+    return { col, row }
+  }
+
+  /**
+   * Find a block's current position in the grid array
+   */
+  private findBlockPosition(block: Block): { col: number; row: number } | null {
+    for (let row = 0; row < this.blocks.length; row++) {
+      for (let col = 0; col < this.config.gridWidth; col++) {
+        if (this.blocks[row][col] === block) {
+          return { col, row }
+        }
+      }
+    }
+    return null
   }
 
   /**
@@ -231,10 +303,16 @@ export class MiningGrid {
     )
     rect.setStrokeStyle(2, 0x000000)
 
-    // Make interactive for clicking
+    // Make interactive for clicking and hovering
     rect.setInteractive({ useHandCursor: true })
     rect.on('pointerdown', () => {
-      this.onBlockClicked(block)
+      this.emitBlockClicked(block, col, row)
+    })
+    rect.on('pointerover', () => {
+      this.emitBlockHovered(block, col, row)
+    })
+    rect.on('pointerout', () => {
+      this.emitBlockHovered(null, col, row)
     })
 
     block.gameObject = rect
@@ -242,12 +320,52 @@ export class MiningGrid {
   }
 
   /**
-   * Handle block click (for mining)
+   * Emit block clicked event
    */
-  private onBlockClicked(block: Block): void {
-    // For now, deal 1 damage on click
-    // This will be replaced by the mining system using StatSystem.DAMAGE
-    block.takeDamage(1)
+  private emitBlockClicked(block: Block, col: number, row: number): void {
+    if (block.isDead()) return
+
+    const worldPos = this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row)
+    const event: BlockClickedEvent = {
+      block,
+      worldX: worldPos.x,
+      worldY: worldPos.y,
+    }
+
+    for (const listener of this.blockClickedListeners) {
+      listener(event)
+    }
+  }
+
+  /**
+   * Emit block hovered event
+   */
+  private emitBlockHovered(block: Block | null, col: number, row: number): void {
+    // Avoid duplicate events for same position
+    if (block && this.hoveredCol === col && this.hoveredRow === row) return
+
+    if (block) {
+      this.hoveredCol = col
+      this.hoveredRow = row
+    } else {
+      this.hoveredCol = -1
+      this.hoveredRow = -1
+    }
+
+    const worldPos = block
+      ? this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row)
+      : this.getBlockWorldPosition(col, row)
+    const event: BlockHoveredEvent = {
+      block: block && !block.isDead() ? block : null,
+      worldX: worldPos.x,
+      worldY: worldPos.y,
+      gridCol: col,
+      gridRow: row,
+    }
+
+    for (const listener of this.blockHoveredListeners) {
+      listener(event)
+    }
   }
 
   /**
@@ -322,7 +440,7 @@ export class MiningGrid {
     // Animate scroll
     this.scene.tweens.add({
       targets: this.container,
-      y: this.container.y - this.config.blockSize,
+      y: this.container.y + this.config.blockSize,
       duration: 200,
       ease: 'Power2',
       onComplete: () => {
@@ -335,32 +453,53 @@ export class MiningGrid {
    * Called when scroll animation completes
    */
   private onScrollComplete(): void {
-    // Remove top row (now off-screen)
-    const topRow = this.blocks.shift()
-    if (topRow) {
-      for (const block of topRow) {
+    // Remove bottom row (now off-screen)
+    const bottomRow = this.blocks.pop()
+    if (bottomRow) {
+      for (const block of bottomRow) {
         if (block) {
           block.dispose()
         }
       }
     }
 
-    // Update row indices for remaining blocks
+    // Insert new top row (revealed at the top after scrolling down)
+    this.generateRow(0, true)
+    this.totalRowsGenerated++
+
+    // Update row indices for remaining blocks and their visual positions
     for (let row = 0; row < this.blocks.length; row++) {
-      for (const block of this.blocks[row]) {
+      for (let col = 0; col < this.config.gridWidth; col++) {
+        const block = this.blocks[row][col]
         if (block && block.gameObject) {
-          // Update block's internal row reference would require Block modification
-          // For now, just update visual position
+          // Update visual position
           const y = row * this.config.blockSize + this.config.blockSize / 2
           block.gameObject.setY(y)
+
+          // Re-wire event listeners with updated row index
+          // Remove old listeners
+          block.gameObject.removeAllListeners('pointerdown')
+          block.gameObject.removeAllListeners('pointerover')
+          block.gameObject.removeAllListeners('pointerout')
+
+          // Add new listeners with correct row
+          const currentRow = row // Capture in closure
+          const currentCol = col
+          block.gameObject.on('pointerdown', () => {
+            this.emitBlockClicked(block, currentCol, currentRow)
+          })
+          block.gameObject.on('pointerover', () => {
+            this.emitBlockHovered(block, currentCol, currentRow)
+          })
+          block.gameObject.on('pointerout', () => {
+            this.emitBlockHovered(null, currentCol, currentRow)
+          })
         }
       }
     }
 
-    // Reset container position and generate new bottom row
+    // Reset container position after scroll
     this.container.y = this.config.topY
-    this.generateRow(this.blocks.length)
-    this.totalRowsGenerated++
 
     this.isScrolling = false
   }
@@ -416,6 +555,22 @@ export class MiningGrid {
   }
 
   /**
+   * Subscribe to block clicked events
+   */
+  onBlockClicked(listener: GridEventListener<BlockClickedEvent>): () => void {
+    this.blockClickedListeners.add(listener)
+    return () => this.blockClickedListeners.delete(listener)
+  }
+
+  /**
+   * Subscribe to block hovered events
+   */
+  onBlockHovered(listener: GridEventListener<BlockHoveredEvent>): () => void {
+    this.blockHoveredListeners.add(listener)
+    return () => this.blockHoveredListeners.delete(listener)
+  }
+
+  /**
    * Get grid bounds for UI positioning
    */
   getGridBounds(): { left: number; right: number; top: number; bottom: number; width: number; height: number } {
@@ -449,6 +604,8 @@ export class MiningGrid {
     this.depthListeners.clear()
     this.blockDestroyedListeners.clear()
     this.rowClearedListeners.clear()
+    this.blockClickedListeners.clear()
+    this.blockHoveredListeners.clear()
 
     // Destroy container
     this.container.destroy()

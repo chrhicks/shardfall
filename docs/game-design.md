@@ -82,6 +82,11 @@ MINE ──▶ ORE ──▶ GOLD ──▶ UPGRADES ──▶ GO DEEPER ──�
 4. Spend gold on upgrades (Damage, Speed, Luck)
 5. Progress deeper where blocks are harder but ores are more valuable
 
+**Interaction Feel:**
+- The mining action should feel like Breakout or BALLxPIT: axes are launched upward, collide with the grid, then bounce back to the miner.
+- The miner stands under the grid with a visible gap so thrown axes have clear travel space before impact.
+- Early game input can still be click-to-mine, but the visual treatment should communicate the launch-and-return loop.
+
 ---
 
 ## Progression Systems
@@ -1180,6 +1185,8 @@ See mockups in `/docs/mockups/` for visual reference.
 - **Special blocks** - Crystal Shards, Chests (5 visual tiers), Gem Nodes, Artifacts
 - **Block damage states** - Progressive crack overlays
 - **Miner character** - Bottom center with pickaxe swing animations
+- **Launch gap** - Clear space between miner and grid for thrown axes to travel
+- **Axe loop** - Axes arc upward to mine and return to the miner (Breakout/BALLxPIT feel)
 - **Cave framing** - Stone walls, torches for atmosphere
 
 #### Right Side HUD
