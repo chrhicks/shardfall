@@ -24,6 +24,8 @@ export interface MiningGridConfig {
   topY?: number
   /** Buffer rows above/below visible area for culling (default: 1) */
   bufferRows?: number
+  /** Number of empty rows at bottom of visible area (default: 0) */
+  emptyRowsBottom?: number
 }
 
 const DEFAULT_CONFIG: Required<MiningGridConfig> = {
@@ -33,6 +35,7 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
   centerX: 400,
   topY: 80,
   bufferRows: 1,
+  emptyRowsBottom: 0,
 }
 
 /** Event types emitted by MiningGrid */
@@ -113,7 +116,9 @@ export class MiningGrid {
 
   constructor(scene: Scene, config: MiningGridConfig = {}) {
     this.scene = scene
-    this.config = { ...DEFAULT_CONFIG, ...config }
+    const merged = { ...DEFAULT_CONFIG, ...config }
+    const clampedEmptyRows = Math.max(0, Math.min(merged.emptyRowsBottom, merged.visibleRows - 1))
+    this.config = { ...merged, emptyRowsBottom: clampedEmptyRows }
 
     // Create container at grid position
     const gridLeft = this.config.centerX - (this.config.gridWidth * this.config.blockSize) / 2
@@ -182,6 +187,7 @@ export class MiningGrid {
     }
 
     this.totalRowsGenerated = totalRows
+    this.enforceBottomGap()
   }
 
   /**
@@ -191,17 +197,23 @@ export class MiningGrid {
     const depth = this._currentDepth + rowIndex
     const row: (Block | null)[] = []
 
-    for (let col = 0; col < this.config.gridWidth; col++) {
-      const blockType = getTerrainTypeForDepth(depth)
-      const block = BlockFactory.createBlock(blockType, col, rowIndex, depth)
+    if (this.isBottomGapRow(rowIndex)) {
+      for (let col = 0; col < this.config.gridWidth; col++) {
+        row.push(null)
+      }
+    } else {
+      for (let col = 0; col < this.config.gridWidth; col++) {
+        const blockType = getTerrainTypeForDepth(depth)
+        const block = BlockFactory.createBlock(blockType, col, rowIndex, depth)
 
-      // Subscribe to block events
-      this.setupBlockListeners(block)
+        // Subscribe to block events
+        this.setupBlockListeners(block)
 
-      // Render the block
-      this.renderBlock(block, col, rowIndex)
+        // Render the block
+        this.renderBlock(block, col, rowIndex)
 
-      row.push(block)
+        row.push(block)
+      }
     }
 
     // Insert at the correct position
@@ -417,7 +429,7 @@ export class MiningGrid {
     }
 
     // If bottom-most visible row is cleared, scroll down
-    if (row >= this.config.visibleRows - 1) {
+    if (row >= this.getBottomActiveRowIndex()) {
       this.scrollDown()
     }
   }
@@ -501,7 +513,41 @@ export class MiningGrid {
     // Reset container position after scroll
     this.container.y = this.config.topY
 
+    this.enforceBottomGap()
+
     this.isScrolling = false
+  }
+
+  /**
+   * Ensure bottom gap rows stay empty after scrolls.
+   */
+  private enforceBottomGap(): void {
+    if (this.config.emptyRowsBottom <= 0) return
+
+    const startRow = this.getBottomGapStartIndex()
+    const endRow = Math.min(this.blocks.length, this.config.visibleRows)
+    for (let row = startRow; row < endRow; row++) {
+      const rowBlocks = this.blocks[row]
+      if (!rowBlocks) continue
+      for (let col = 0; col < rowBlocks.length; col++) {
+        const block = rowBlocks[col]
+        if (!block) continue
+        block.dispose()
+        rowBlocks[col] = null
+      }
+    }
+  }
+
+  private isBottomGapRow(rowIndex: number): boolean {
+    return rowIndex >= this.getBottomGapStartIndex() && rowIndex < this.config.visibleRows
+  }
+
+  private getBottomGapStartIndex(): number {
+    return this.config.visibleRows - this.config.emptyRowsBottom
+  }
+
+  private getBottomActiveRowIndex(): number {
+    return Math.max(0, this.config.visibleRows - 1 - this.config.emptyRowsBottom)
   }
 
   /**

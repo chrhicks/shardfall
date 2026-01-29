@@ -59,10 +59,10 @@ export class DevScene extends Scene {
     this.blockSize = blockSize
     const centerX = 350
     const topY = 80
-    const gridGap = 48
-    const minerOffsetY = 20
+    const emptyRowsBottom = 2
+    const minerOffsetY = 0
     const minerFloorOffset = 24
-    const frameExtraBottom = gridGap + minerOffsetY + minerFloorOffset
+    const frameExtraBottom = minerOffsetY + minerFloorOffset
 
     const gridLeft = centerX - (gridWidth * blockSize) / 2
     const gridRight = gridLeft + gridWidth * blockSize
@@ -85,6 +85,7 @@ export class DevScene extends Scene {
       blockSize,
       centerX,
       topY,
+      emptyRowsBottom,
     })
 
     // Get grid bounds for positioning other elements
@@ -95,7 +96,7 @@ export class DevScene extends Scene {
 
     // Create miner centered below the grid
     const minerX = gridBounds.left + gridBounds.width / 2
-    const minerY = gridBounds.bottom + gridGap + minerOffsetY
+    const minerY = gridBounds.bottom + minerOffsetY
     this.miner = new Miner(this, {
       x: minerX,
       y: minerY,
@@ -103,8 +104,8 @@ export class DevScene extends Scene {
     })
 
     // Subtle lane between miner and grid for axe travel
-    const laneTop = gridBounds.bottom + 4
-    const laneBottom = minerY - 24
+    const laneTop = gridBounds.bottom - emptyRowsBottom * blockSize + 4
+    const laneBottom = gridBounds.bottom - 4
     const laneHeight = Math.max(8, laneBottom - laneTop)
     this.axeLane = this.add.rectangle(
       gridBounds.left + gridBounds.width / 2,
@@ -121,13 +122,10 @@ export class DevScene extends Scene {
       size: blockSize,
     })
 
-    // Wire up block click to miner mining action with visual feedback
-    this.miningGrid.onBlockClicked((event) => {
-      const throwResult = this.miner.tryThrow()
-      if (!throwResult) return
-
-      const target = this.getBlockWorldCenter(event.block, event.worldX, event.worldY)
-      this.launchAxeBounce(throwResult.projectile, throwResult.origin, target, event.block)
+    // Fire toward cursor on click/tap
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+      this.fireToward(worldPoint.x, worldPoint.y)
     })
 
     // Wire up block hover to target indicator
@@ -339,22 +337,52 @@ export class DevScene extends Scene {
     })
   }
 
-  private launchAxeBounce(
+  private fireToward(targetX: number, targetY: number): void {
+    const throwResult = this.miner.tryThrow()
+    if (!throwResult) return
+
+    if (targetY >= throwResult.origin.y) {
+      return
+    }
+
+    const direction = this.normalizeVector(targetX - throwResult.origin.x, targetY - throwResult.origin.y)
+    this.launchAxeFromDirection(throwResult.projectile, throwResult.origin, direction)
+  }
+
+  private launchAxeFromDirection(
     projectile: AxeProjectile,
     origin: { x: number; y: number },
-    target: { x: number; y: number },
-    initialBlock: Block
+    direction: { x: number; y: number }
   ): void {
     const maxRicochets = 3
-    const state = { ricochetsLeft: maxRicochets, lastBlockId: initialBlock.id }
+    const state = { ricochetsLeft: maxRicochets, lastBlockId: '' }
 
     const speed = this.miner.getSpeed()
-    const direction = this.normalizeVector(target.x - origin.x, target.y - origin.y)
+    const returnPoint = this.miner.getPickaxeWorldPosition()
 
-    this.travelProjectile(projectile, origin, target, speed, () => {
-      this.applyAxeHit(initialBlock, target.x, target.y)
-      const reflected = this.reflectVector(direction, this.getImpactNormal(direction))
-      const start = this.offsetPoint(target, reflected)
+    const first = this.findNextCollision(origin, direction, returnPoint, state.lastBlockId)
+    if (!first) {
+      this.travelProjectile(projectile, origin, returnPoint, speed, () => {
+        this.axeProjectiles.release(projectile)
+      })
+      return
+    }
+
+    if (first.type === 'return') {
+      this.travelProjectile(projectile, origin, first.point, speed, () => {
+        this.axeProjectiles.release(projectile)
+      })
+      return
+    }
+
+    this.travelProjectile(projectile, origin, first.point, speed, () => {
+      if (first.type === 'block') {
+        this.applyAxeHit(first.block, first.point.x, first.point.y)
+        state.lastBlockId = first.block.id
+      }
+
+      const reflected = this.reflectVector(direction, first.normal)
+      const start = this.offsetPoint(first.point, reflected)
       this.continueBounce(projectile, start, reflected, speed, () => this.miner.getPickaxeWorldPosition(), () => {
         this.axeProjectiles.release(projectile)
       }, state)
@@ -454,15 +482,15 @@ export class DevScene extends Scene {
 
     if (direction.x < -epsilon) {
       const t = (bounds.left - origin.x) / direction.x
-      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: -1, y: 0 } })
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 1, y: 0 } })
     }
     if (direction.x > epsilon) {
       const t = (bounds.right - origin.x) / direction.x
-      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 1, y: 0 } })
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: -1, y: 0 } })
     }
     if (direction.y < -epsilon) {
       const t = (bounds.top - origin.y) / direction.y
-      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 0, y: -1 } })
+      if (t > 0) candidates.push({ type: 'wall', t, normal: { x: 0, y: 1 } })
     }
     if (direction.y > epsilon) {
       const t = (returnPoint.y - origin.y) / direction.y
@@ -474,74 +502,86 @@ export class DevScene extends Scene {
       }
     }
 
-    const maxCandidate = candidates.reduce((min, current) => Math.min(min, current.t), Number.POSITIVE_INFINITY)
-    const blockHit = this.findFirstBlockHit(origin, direction, Math.min(maxCandidate, bounds.height * 3), ignoreBlockId)
+    const blockHit = this.findFirstBlockHit(origin, direction, ignoreBlockId)
+
+    let closest:
+      | { type: 'block'; point: { x: number; y: number }; normal: { x: number; y: number }; block: Block; t: number }
+      | { type: 'wall'; point: { x: number; y: number }; normal: { x: number; y: number }; t: number }
+      | { type: 'return'; point: { x: number; y: number }; t: number }
+      | null = null
 
     if (blockHit) {
-      return {
+      closest = {
         type: 'block',
         point: blockHit.point,
-        normal: this.getImpactNormal(direction),
+        normal: blockHit.normal,
         block: blockHit.block,
+        t: blockHit.t,
       }
     }
 
-    if (!candidates.length) return null
+    for (const candidate of candidates) {
+      const point = {
+        x: origin.x + direction.x * candidate.t,
+        y: origin.y + direction.y * candidate.t,
+      }
+      if (!closest || candidate.t < closest.t - 0.0001) {
+        closest =
+          candidate.type === 'return'
+            ? { type: 'return', point, t: candidate.t }
+            : { type: 'wall', point, normal: candidate.normal ?? { x: 0, y: 0 }, t: candidate.t }
+        continue
+      }
 
-    const nearest = candidates.reduce((min, current) => (current.t < min.t ? current : min))
-    const point = {
-      x: origin.x + direction.x * nearest.t,
-      y: origin.y + direction.y * nearest.t,
+      if (closest && Math.abs(candidate.t - closest.t) <= 0.0001 && closest.type !== 'block') {
+        closest =
+          candidate.type === 'return'
+            ? { type: 'return', point, t: candidate.t }
+            : { type: 'wall', point, normal: candidate.normal ?? { x: 0, y: 0 }, t: candidate.t }
+      }
     }
 
-    if (nearest.type === 'return') {
-      return { type: 'return', point }
+    if (!closest) return null
+
+    if (closest.type === 'return') {
+      return { type: 'return', point: closest.point }
     }
 
-    return {
-      type: 'wall',
-      point,
-      normal: nearest.normal ?? { x: 0, y: 0 },
+    if (closest.type === 'wall') {
+      return { type: 'wall', point: closest.point, normal: closest.normal }
     }
+
+    return { type: 'block', point: closest.point, normal: closest.normal, block: closest.block }
   }
 
   private findFirstBlockHit(
     origin: { x: number; y: number },
     direction: { x: number; y: number },
-    maxDistance: number,
     ignoreBlockId: string
-  ): { block: Block; point: { x: number; y: number } } | null {
-    const bounds = this.miningGrid.getGridBounds()
-    const step = Math.max(6, this.blockSize / 4)
+  ): { block: Block; point: { x: number; y: number }; normal: { x: number; y: number }; t: number } | null {
+    let closest: { block: Block; point: { x: number; y: number }; normal: { x: number; y: number }; t: number } | null = null
 
-    for (let dist = step; dist <= maxDistance; dist += step) {
-      const x = origin.x + direction.x * dist
-      const y = origin.y + direction.y * dist
+    for (const block of this.miningGrid.getVisibleBlocks()) {
+      if (!block.gameObject || block.isDead()) continue
+      if (ignoreBlockId && block.id === ignoreBlockId) continue
 
-      if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) {
-        continue
+      const matrix = block.gameObject.getWorldTransformMatrix()
+      const halfWidth = block.gameObject.displayWidth / 2
+      const halfHeight = block.gameObject.displayHeight / 2
+      const minX = matrix.tx - halfWidth
+      const maxX = matrix.tx + halfWidth
+      const minY = matrix.ty - halfHeight
+      const maxY = matrix.ty + halfHeight
+
+      const hit = this.intersectRayAabb(origin, direction, minX, minY, maxX, maxY)
+      if (!hit) continue
+
+      if (!closest || hit.t < closest.t) {
+        closest = { block, point: hit.point, normal: hit.normal, t: hit.t }
       }
-
-      const col = Math.floor((x - bounds.left) / this.blockSize)
-      const row = Math.floor((y - bounds.top) / this.blockSize)
-      const block = this.miningGrid.getBlockAt(col, row)
-      if (!block || block.isDead() || block.id === ignoreBlockId) continue
-
-      const centerX = bounds.left + col * this.blockSize + this.blockSize / 2
-      const centerY = bounds.top + row * this.blockSize + this.blockSize / 2
-      return { block, point: { x: centerX, y: centerY } }
     }
 
-    return null
-  }
-
-  private getBlockWorldCenter(block: Block, fallbackX: number, fallbackY: number): { x: number; y: number } {
-    const blockObject = block.gameObject
-    const worldMatrix = blockObject?.getWorldTransformMatrix()
-    return {
-      x: worldMatrix?.tx ?? fallbackX,
-      y: worldMatrix?.ty ?? fallbackY,
-    }
+    return closest
   }
 
   private normalizeVector(x: number, y: number): { x: number; y: number } {
@@ -558,15 +598,65 @@ export class DevScene extends Scene {
     }
   }
 
-  private getImpactNormal(direction: { x: number; y: number }): { x: number; y: number } {
-    if (Math.abs(direction.x) > Math.abs(direction.y)) {
-      return { x: Math.sign(direction.x), y: 0 }
-    }
-    return { x: 0, y: Math.sign(direction.y) }
-  }
-
   private offsetPoint(point: { x: number; y: number }, direction: { x: number; y: number }): { x: number; y: number } {
     return { x: point.x + direction.x * 2, y: point.y + direction.y * 2 }
+  }
+
+  private intersectRayAabb(
+    origin: { x: number; y: number },
+    direction: { x: number; y: number },
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number
+  ): { point: { x: number; y: number }; normal: { x: number; y: number }; t: number } | null {
+    const epsilon = 0.000001
+    const invX = Math.abs(direction.x) > epsilon ? 1 / direction.x : Number.POSITIVE_INFINITY
+    const invY = Math.abs(direction.y) > epsilon ? 1 / direction.y : Number.POSITIVE_INFINITY
+
+    const t1 = (minX - origin.x) * invX
+    const t2 = (maxX - origin.x) * invX
+    const t3 = (minY - origin.y) * invY
+    const t4 = (maxY - origin.y) * invY
+
+    const tMinX = Math.min(t1, t2)
+    const tMaxX = Math.max(t1, t2)
+    const tMinY = Math.min(t3, t4)
+    const tMaxY = Math.max(t3, t4)
+
+    const tEntry = Math.max(tMinX, tMinY)
+    const tExit = Math.min(tMaxX, tMaxY)
+
+    if (tExit < 0 || tEntry > tExit) return null
+
+    const tHit = tEntry >= 0 ? tEntry : tExit
+    if (tHit < 0) return null
+
+    const point = {
+      x: origin.x + direction.x * tHit,
+      y: origin.y + direction.y * tHit,
+    }
+
+    const axisNormal = this.getEntryNormal(direction, tMinX, tMinY)
+    return { point, normal: axisNormal, t: tHit }
+  }
+
+  private getEntryNormal(direction: { x: number; y: number }, tMinX: number, tMinY: number): { x: number; y: number } {
+    const epsilon = 0.000001
+    const absX = Math.abs(direction.x)
+    const absY = Math.abs(direction.y)
+
+    let hitAxis: 'x' | 'y'
+    if (Math.abs(tMinX - tMinY) < epsilon) {
+      hitAxis = absX >= absY ? 'x' : 'y'
+    } else {
+      hitAxis = tMinX > tMinY ? 'x' : 'y'
+    }
+
+    if (hitAxis === 'x') {
+      return { x: direction.x > 0 ? -1 : 1, y: 0 }
+    }
+    return { x: 0, y: direction.y > 0 ? -1 : 1 }
   }
 
   shutdown() {
