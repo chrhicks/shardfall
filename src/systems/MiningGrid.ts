@@ -8,6 +8,7 @@
 
 import { Scene } from 'phaser'
 import { Block, BlockFactory, OreBlock, isOreBlock } from '../objects'
+import { BlockType } from '../config/blocks'
 import { ORE_SPAWN_CHANCE, OreTier } from '../config/ores'
 import {
   getTerrainTypeForDepth,
@@ -17,7 +18,7 @@ import {
   selectOreType,
   getOreTierColor,
   lightenColor,
-  darkenColor,
+  darkenColor
 } from '../utils'
 
 /** Grid configuration */
@@ -38,6 +39,8 @@ export interface MiningGridConfig {
   emptyRowsBottom?: number
   /** Base ore spawn chance per block (default: ORE_SPAWN_CHANCE) */
   oreSpawnChance?: number
+  /** Optional texture keys for terrain blocks */
+  terrainTextureKeys?: Partial<Record<BlockType, string[]>>
 }
 
 const DEFAULT_CONFIG: Required<MiningGridConfig> = {
@@ -49,6 +52,7 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
   bufferRows: 1,
   emptyRowsBottom: 0,
   oreSpawnChance: ORE_SPAWN_CHANCE,
+  terrainTextureKeys: {}
 }
 
 /** Event types emitted by MiningGrid */
@@ -272,9 +276,12 @@ export class MiningGrid {
   private setupBlockListeners(block: Block): void {
     // Update visual on damage
     block.onDamage((event) => {
-      if (block.gameObject) {
-        const newColor = getDamageColor(block.baseColor, event.hpPercent)
+      if (!block.gameObject) return
+      const newColor = getDamageColor(block.baseColor, event.hpPercent)
+      if (block.gameObject instanceof Phaser.GameObjects.Rectangle) {
         block.gameObject.setFillStyle(newColor)
+      } else if (!isOreBlock(block) && 'setTint' in block.gameObject) {
+        block.gameObject.setTint(newColor)
       }
     })
 
@@ -284,7 +291,9 @@ export class MiningGrid {
       // Find the block's current position in the grid (may have shifted due to scrolling)
       const gridPos =
         this.findBlockPosition(block) ??
-        (worldFromObject ? this.getGridPositionFromWorld(worldFromObject.x, worldFromObject.y) : null)
+        (worldFromObject
+          ? this.getGridPositionFromWorld(worldFromObject.x, worldFromObject.y)
+          : null)
       if (!gridPos) return
 
       const worldPos = worldFromObject ?? this.getBlockWorldPosition(gridPos.col, gridPos.row)
@@ -302,7 +311,7 @@ export class MiningGrid {
             value: block.value,
             amount: 1,
             worldX: worldPos.x,
-            worldY: worldPos.y,
+            worldY: worldPos.y
           })
         }
       }
@@ -329,7 +338,10 @@ export class MiningGrid {
   /**
    * Convert world position to grid coordinates
    */
-  private getGridPositionFromWorld(worldX: number, worldY: number): { col: number; row: number } | null {
+  private getGridPositionFromWorld(
+    worldX: number,
+    worldY: number
+  ): { col: number; row: number } | null {
     const localX = worldX - this.container.x
     const localY = worldY - this.container.y
     const col = Math.round((localX - this.config.blockSize / 2) / this.config.blockSize)
@@ -361,6 +373,62 @@ export class MiningGrid {
     const x = col * this.config.blockSize + this.config.blockSize / 2
     const y = row * this.config.blockSize + this.config.blockSize / 2
 
+    const textureKey = this.getTerrainTextureKey(block)
+
+    if (textureKey && this.scene.textures.exists(textureKey)) {
+      const frame = this.scene.add.rectangle(
+        x,
+        y,
+        this.config.blockSize,
+        this.config.blockSize,
+        block.baseColor,
+        1
+      )
+      frame.setStrokeStyle(1, 0x1a1f30, 0.6)
+      this.container.add(frame)
+
+      const image = this.scene.add.image(x, y, textureKey)
+      image.setDisplaySize(this.config.blockSize + 2, this.config.blockSize + 2)
+      image.setInteractive({ useHandCursor: true })
+      image.on('pointerdown', () => {
+        this.emitBlockClicked(block, col, row)
+      })
+      image.on('pointerover', () => {
+        this.emitBlockHovered(block, col, row)
+      })
+      image.on('pointerout', () => {
+        this.emitBlockHovered(null, col, row)
+      })
+
+      block.gameObject = image
+      block.frameObject = frame
+      this.container.add(image)
+    } else {
+      const rect = this.scene.add.rectangle(
+        x,
+        y,
+        this.config.blockSize,
+        this.config.blockSize,
+        block.baseColor
+      )
+      rect.setStrokeStyle(1, 0x1a1f30, 0.6)
+
+      // Make interactive for clicking and hovering
+      rect.setInteractive({ useHandCursor: true })
+      rect.on('pointerdown', () => {
+        this.emitBlockClicked(block, col, row)
+      })
+      rect.on('pointerover', () => {
+        this.emitBlockHovered(block, col, row)
+      })
+      rect.on('pointerout', () => {
+        this.emitBlockHovered(null, col, row)
+      })
+
+      block.gameObject = rect
+      this.container.add(rect)
+    }
+
     if (isOreBlock(block)) {
       const glow = this.createOreGlow(block, x, y)
       if (glow) {
@@ -368,30 +436,6 @@ export class MiningGrid {
         block.attachGlowGraphic(glow.graphic, glow.tween)
       }
     }
-
-    const rect = this.scene.add.rectangle(
-      x,
-      y,
-      this.config.blockSize - 4,
-      this.config.blockSize - 4,
-      block.baseColor
-    )
-    rect.setStrokeStyle(2, 0x000000)
-
-    // Make interactive for clicking and hovering
-    rect.setInteractive({ useHandCursor: true })
-    rect.on('pointerdown', () => {
-      this.emitBlockClicked(block, col, row)
-    })
-    rect.on('pointerover', () => {
-      this.emitBlockHovered(block, col, row)
-    })
-    rect.on('pointerout', () => {
-      this.emitBlockHovered(null, col, row)
-    })
-
-    block.gameObject = rect
-    this.container.add(rect)
 
     if (isOreBlock(block)) {
       const overlay = this.createOreOverlay(block, x, y)
@@ -408,6 +452,13 @@ export class MiningGrid {
     }
   }
 
+  private getTerrainTextureKey(block: Block): string | null {
+    const textures = this.config.terrainTextureKeys[block.type]
+    if (!textures || textures.length === 0) return null
+    const index = Math.abs(block.x + block.y + block.depth) % textures.length
+    return textures[index]
+  }
+
   private createOreGlow(
     block: OreBlock,
     x: number,
@@ -418,7 +469,7 @@ export class MiningGrid {
       [OreTier.UNCOMMON]: 0.1,
       [OreTier.RARE]: 0.16,
       [OreTier.EPIC]: 0.22,
-      [OreTier.LEGENDARY]: 0.3,
+      [OreTier.LEGENDARY]: 0.3
     }
 
     const glowAlpha = glowAlphaByTier[block.tier]
@@ -436,14 +487,18 @@ export class MiningGrid {
         alpha: { from: glowAlpha, to: glowAlpha + 0.12 },
         duration: 700,
         yoyo: true,
-        repeat: -1,
+        repeat: -1
       })
     }
 
     return { graphic: glow, tween }
   }
 
-  private createOreOverlay(block: OreBlock, x: number, y: number): Phaser.GameObjects.Rectangle | null {
+  private createOreOverlay(
+    block: OreBlock,
+    x: number,
+    y: number
+  ): Phaser.GameObjects.Rectangle | null {
     const overlaySize = Math.max(10, this.config.blockSize * 0.32)
     const overlayColor = lightenColor(block.baseColor, 0.18)
     const overlay = this.scene.add.rectangle(x, y, overlaySize, overlaySize, overlayColor, 0.9)
@@ -465,7 +520,7 @@ export class MiningGrid {
       [OreTier.UNCOMMON]: 2,
       [OreTier.RARE]: 3,
       [OreTier.EPIC]: 3,
-      [OreTier.LEGENDARY]: 4,
+      [OreTier.LEGENDARY]: 4
     }
 
     const alphaByTier: Record<OreTier, number> = {
@@ -473,7 +528,7 @@ export class MiningGrid {
       [OreTier.UNCOMMON]: 0.5,
       [OreTier.RARE]: 0.6,
       [OreTier.EPIC]: 0.7,
-      [OreTier.LEGENDARY]: 0.8,
+      [OreTier.LEGENDARY]: 0.8
     }
 
     highlight.setStrokeStyle(
@@ -489,7 +544,7 @@ export class MiningGrid {
       duration: 600,
       yoyo: true,
       repeat: -1,
-      paused: true,
+      paused: true
     })
 
     return { graphic: highlight, tween }
@@ -501,11 +556,12 @@ export class MiningGrid {
   private emitBlockClicked(block: Block, col: number, row: number): void {
     if (block.isDead()) return
 
-    const worldPos = this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row)
+    const worldPos =
+      this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row)
     const event: BlockClickedEvent = {
       block,
       worldX: worldPos.x,
-      worldY: worldPos.y,
+      worldY: worldPos.y
     }
 
     for (const listener of this.blockClickedListeners) {
@@ -529,14 +585,14 @@ export class MiningGrid {
     }
 
     const worldPos = block
-      ? this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row)
+      ? (this.getBlockWorldPositionFromGameObject(block) ?? this.getBlockWorldPosition(col, row))
       : this.getBlockWorldPosition(col, row)
     const event: BlockHoveredEvent = {
       block: block && !block.isDead() ? block : null,
       worldX: worldPos.x,
       worldY: worldPos.y,
       gridCol: col,
-      gridRow: row,
+      gridRow: row
     }
 
     for (const listener of this.blockHoveredListeners) {
@@ -593,7 +649,6 @@ export class MiningGrid {
     for (const listener of this.rowClearedListeners) {
       listener({ depth })
     }
-
   }
 
   private evaluateScroll(): void {
@@ -640,7 +695,7 @@ export class MiningGrid {
       ease: 'Power2',
       onComplete: () => {
         this.onScrollComplete()
-      },
+      }
     })
   }
 
@@ -671,6 +726,9 @@ export class MiningGrid {
           const x = col * this.config.blockSize + this.config.blockSize / 2
           const y = row * this.config.blockSize + this.config.blockSize / 2
           block.gameObject.setPosition(x, y)
+          if (block.frameObject) {
+            block.frameObject.setPosition(x, y)
+          }
           if (isOreBlock(block)) {
             block.updateVisualPosition(x, y)
           }
@@ -703,7 +761,12 @@ export class MiningGrid {
     this.enforceBottomGap()
 
     this.isScrolling = false
+    const shouldContinue = this.pendingScroll
     this.pendingScroll = false
+    if (shouldContinue) {
+      this.scrollDown()
+      return
+    }
     this.evaluateScroll()
   }
 
@@ -759,7 +822,7 @@ export class MiningGrid {
     const localY = row * this.config.blockSize + this.config.blockSize / 2
     return {
       x: this.container.x + localX,
-      y: this.container.y + localY,
+      y: this.container.y + localY
     }
   }
 
@@ -828,7 +891,14 @@ export class MiningGrid {
   /**
    * Get grid bounds for UI positioning
    */
-  getGridBounds(): { left: number; right: number; top: number; bottom: number; width: number; height: number } {
+  getGridBounds(): {
+    left: number
+    right: number
+    top: number
+    bottom: number
+    width: number
+    height: number
+  } {
     const width = this.config.gridWidth * this.config.blockSize
     const height = this.config.visibleRows * this.config.blockSize
     return {
@@ -837,7 +907,7 @@ export class MiningGrid {
       top: this.container.y,
       bottom: this.container.y + height,
       width,
-      height,
+      height
     }
   }
 

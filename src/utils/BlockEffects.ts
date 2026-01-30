@@ -60,7 +60,7 @@ const DEFAULT_CONFIG: Required<BlockBreakEffectConfig> = {
   speed: 100,
   shakeCamera: true,
   shakeIntensity: 2,
-  shakeDuration: 50,
+  shakeDuration: 50
 }
 
 /**
@@ -93,11 +93,7 @@ export function playBlockBreakEffect(
     gravityY: 200,
     quantity: cfg.particleCount,
     emitting: false,
-    tint: [
-      color,
-      darkenColor(color, 0.2),
-      lightenColor(color, 0.2),
-    ],
+    tint: [color, darkenColor(color, 0.2), lightenColor(color, 0.2)]
   })
 
   // Emit all particles at once
@@ -126,12 +122,7 @@ export function playBlockBreakEffect(
  * @param y - World Y position
  * @param color - Block color
  */
-export function playBlockHitEffect(
-  scene: Phaser.Scene,
-  x: number,
-  y: number,
-  color: number
-): void {
+export function playBlockHitEffect(scene: Phaser.Scene, x: number, y: number, color: number): void {
   ensureParticleTexture(scene)
 
   const particles = scene.add.particles(x, y, PARTICLE_TEXTURE_KEY, {
@@ -142,7 +133,7 @@ export function playBlockHitEffect(
     alpha: { start: 0.8, end: 0 },
     quantity: 3,
     emitting: false,
-    tint: color,
+    tint: color
   })
 
   particles.explode(3)
@@ -179,7 +170,7 @@ const DEFAULT_DAMAGE_CONFIG: Required<Omit<DamageNumberConfig, 'isCritical'>> = 
   duration: 500,
   floatDistance: 30,
   fontSize: '16px',
-  color: '#ffffff',
+  color: '#ffffff'
 }
 
 /**
@@ -209,7 +200,7 @@ export function showDamageNumber(
     fontSize: config.isCritical ? '24px' : cfg.fontSize,
     color: config.isCritical ? '#ffff00' : cfg.color,
     stroke: '#000000',
-    strokeThickness: config.isCritical ? 4 : 2,
+    strokeThickness: config.isCritical ? 4 : 2
   }
 
   const text = scene.add.text(x, y, damageText, style)
@@ -229,7 +220,7 @@ export function showDamageNumber(
     ease: 'Power2',
     onComplete: () => {
       text.destroy()
-    },
+    }
   })
 
   // Scale pop for critical hits
@@ -238,7 +229,7 @@ export function showDamageNumber(
       targets: text,
       scale: { from: 1.5, to: 1 },
       duration: 150,
-      ease: 'Back.easeOut',
+      ease: 'Back.easeOut'
     })
   }
 }
@@ -252,13 +243,24 @@ export function showDamageNumber(
  */
 export function flashWhite(
   scene: Phaser.Scene,
-  target: Phaser.GameObjects.Rectangle,
+  target: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Image,
   duration = 50
 ): void {
-  const originalColor = target.fillColor
-  target.setFillStyle(0xffffff)
+  if (target instanceof Phaser.GameObjects.Rectangle) {
+    const originalColor = target.fillColor
+    target.setFillStyle(0xffffff)
+    scene.time.delayedCall(duration, () => {
+      target.setFillStyle(originalColor)
+    })
+    return
+  }
 
-  scene.time.delayedCall(duration, () => {
-    target.setFillStyle(originalColor)
-  })
+  if ('setTint' in target) {
+    target.setTint(0xffffff)
+    scene.time.delayedCall(duration, () => {
+      if ('clearTint' in target) {
+        target.clearTint()
+      }
+    })
+  }
 }

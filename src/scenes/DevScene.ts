@@ -26,6 +26,25 @@ import { AxeProjectile, AxeProjectilePool } from '../objects/AxeProjectile'
 import { Block } from '../objects/Block'
 import { showDamageNumber, playBlockHitEffect, flashWhite } from '../utils/BlockEffects'
 import { playOreCollectEffect } from '../utils'
+import { BlockType } from '../config/blocks'
+
+const TERRAIN_TILE_ASSETS: Record<string, string> = {
+  terrain_stone_01: 'assets/tiles/terrain/stone_01.png',
+  terrain_stone_02: 'assets/tiles/terrain/stone_02.png',
+  terrain_hard_rock_01: 'assets/tiles/terrain/hard_rock_01.png',
+  terrain_hard_rock_02: 'assets/tiles/terrain/hard_rock_02.png',
+  terrain_dense_rock_01: 'assets/tiles/terrain/dense_rock_01.png',
+  terrain_dense_rock_02: 'assets/tiles/terrain/dense_rock_02.png',
+  terrain_ancient_stone_01: 'assets/tiles/terrain/ancient_stone_01.png',
+  terrain_ancient_stone_02: 'assets/tiles/terrain/ancient_stone_02.png'
+}
+
+const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
+  [BlockType.STONE]: ['terrain_stone_01', 'terrain_stone_02'],
+  [BlockType.HARD_ROCK]: ['terrain_hard_rock_01', 'terrain_hard_rock_02'],
+  [BlockType.DENSE_ROCK]: ['terrain_dense_rock_01', 'terrain_dense_rock_02'],
+  [BlockType.ANCIENT_STONE]: ['terrain_ancient_stone_01', 'terrain_ancient_stone_02']
+}
 
 export class DevScene extends Scene {
   private miningGrid!: MiningGrid
@@ -40,13 +59,19 @@ export class DevScene extends Scene {
   private statDebugPanel!: StatDebugPanel
   private infoText!: Phaser.GameObjects.Text
   private axeLane?: Phaser.GameObjects.Rectangle
-  private blockSize = 64
+  private blockSize = 48
   private unsubscribeGoldChanged?: () => void
   private unsubscribeOreChanged?: () => void
   private unsubscribeOreSold?: () => void
 
   constructor() {
     super('DevScene')
+  }
+
+  preload() {
+    for (const [key, url] of Object.entries(TERRAIN_TILE_ASSETS)) {
+      this.load.image(key, url)
+    }
   }
 
   create() {
@@ -59,17 +84,17 @@ export class DevScene extends Scene {
         fontSize: '28px',
         color: '#ffffff',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 4
       })
       .setOrigin(0.5)
 
     // Calculate grid bounds first for cave frame positioning
-    const gridWidth = 5
-    const visibleRows = 8
-    const blockSize = 64
+    const gridWidth = 10
+    const visibleRows = 12
+    const blockSize = 48
     this.blockSize = blockSize
-    const centerX = 350
-    const topY = 80
+    const centerX = 360
+    const topY = 90
     const emptyRowsBottom = 2
     const minerOffsetY = 0
     const minerFloorOffset = 24
@@ -86,7 +111,7 @@ export class DevScene extends Scene {
       gridRight,
       gridTop,
       gridBottom,
-      extraBottom: frameExtraBottom,
+      extraBottom: frameExtraBottom
     })
 
     // Create the mining grid (higher depth, in front)
@@ -97,14 +122,21 @@ export class DevScene extends Scene {
       centerX,
       topY,
       emptyRowsBottom,
+      terrainTextureKeys: TERRAIN_TILE_KEYS
     })
 
     this.inventory = InventorySystem.getInstance()
 
+    const safeLeft = 16
+    const goldHalfWidth = 85
+    const depthHalfWidth = 60
+    const leftGap = 12
+    const goldX = Math.max(safeLeft + goldHalfWidth, gridLeft - goldHalfWidth - leftGap)
+
     this.goldDisplay = new GoldDisplay(this, {
-      x: gridLeft - 80,
+      x: goldX,
       y: 60,
-      initialGold: this.inventory.getGold(),
+      initialGold: this.inventory.getGold()
     })
 
     this.unsubscribeGoldChanged = this.inventory.onGoldChanged((event) => {
@@ -119,7 +151,7 @@ export class DevScene extends Scene {
       y: 490,
       onSellOre: (oreType) => {
         this.inventory.sellOre(oreType)
-      },
+      }
     })
 
     this.unsubscribeOreChanged = this.inventory.onOreChanged((event) => {
@@ -146,7 +178,7 @@ export class DevScene extends Scene {
       .text(oreTargetX, oreTargetY + 24, 'ORE', {
         fontFamily: 'Arial Black',
         fontSize: '11px',
-        color: '#ffcc66',
+        color: '#ffcc66'
       })
       .setOrigin(0.5, 0)
       .setDepth(30)
@@ -161,7 +193,7 @@ export class DevScene extends Scene {
       .text(oreTargetX, sellButtonY, 'SELL ALL', {
         fontFamily: 'Arial Black',
         fontSize: '11px',
-        color: '#d7f5c4',
+        color: '#d7f5c4'
       })
       .setOrigin(0.5)
       .setDepth(31)
@@ -193,7 +225,7 @@ export class DevScene extends Scene {
     this.miner = new Miner(this, {
       x: minerX,
       y: minerY,
-      axePool: this.axeProjectiles,
+      axePool: this.axeProjectiles
     })
 
     // Subtle lane between miner and grid for axe travel
@@ -212,7 +244,7 @@ export class DevScene extends Scene {
 
     // Create target indicator for hover highlight
     this.targetIndicator = new TargetIndicator(this, {
-      size: blockSize,
+      size: blockSize
     })
 
     // Fire toward cursor on click/tap
@@ -231,9 +263,10 @@ export class DevScene extends Scene {
     })
 
     // Depth indicator
+    const depthX = Math.max(safeLeft + depthHalfWidth, gridBounds.left - depthHalfWidth - leftGap)
     this.depthIndicator = new DepthIndicator(this, {
-      x: gridBounds.left - 80,
-      y: gridBounds.top + 50,
+      x: depthX,
+      y: gridBounds.top + 50
     })
 
     // Subscribe to depth changes
@@ -256,7 +289,7 @@ export class DevScene extends Scene {
 
     // Stat debug panel (press D to toggle)
     this.statDebugPanel = new StatDebugPanel(this, {
-      getDepth: () => this.miningGrid.currentDepth,
+      getDepth: () => this.miningGrid.currentDepth
     })
 
     // Info text
@@ -265,7 +298,7 @@ export class DevScene extends Scene {
       .text(512, infoY, 'Click blocks to mine! Press D for stat debug', {
         fontFamily: 'Arial',
         fontSize: '16px',
-        color: '#888888',
+        color: '#888888'
       })
       .setOrigin(0.5)
 
@@ -277,7 +310,7 @@ export class DevScene extends Scene {
       .text(512, Math.min(infoY + 32, 748), 'Clear bottom row to scroll deeper', {
         fontFamily: 'Arial',
         fontSize: '14px',
-        color: '#666666',
+        color: '#666666'
       })
       .setOrigin(0.5)
   }
@@ -297,7 +330,7 @@ export class DevScene extends Scene {
       .text(startX + buttonWidth / 2, startY - 20, 'STAT TEST CONTROLS', {
         fontFamily: 'Arial Black',
         fontSize: '14px',
-        color: '#ffff00',
+        color: '#ffff00'
       })
       .setOrigin(0.5)
 
@@ -307,7 +340,7 @@ export class DevScene extends Scene {
       { label: '+50% Damage (skills)', action: () => this.addSkillDamage() },
       { label: 'Clear Upgrades', action: () => this.clearUpgrades() },
       { label: 'Clear Skills', action: () => this.clearSkills() },
-      { label: 'Clear All', action: () => this.clearAll() },
+      { label: 'Clear All', action: () => this.clearAll() }
     ]
 
     buttons.forEach((btn, index) => {
@@ -328,7 +361,7 @@ export class DevScene extends Scene {
         .text(startX + buttonWidth / 2, y, btn.label, {
           fontFamily: 'Arial',
           fontSize: '12px',
-          color: '#ffffff',
+          color: '#ffffff'
         })
         .setOrigin(0.5)
 
@@ -353,7 +386,7 @@ export class DevScene extends Scene {
       .text(startX + buttonWidth / 2, statsY, 'Live Stats:', {
         fontFamily: 'Arial Black',
         fontSize: '14px',
-        color: '#00ffff',
+        color: '#00ffff'
       })
       .setOrigin(0.5)
 
@@ -361,7 +394,7 @@ export class DevScene extends Scene {
       .text(startX + buttonWidth / 2, statsY + 25, '', {
         fontFamily: 'monospace',
         fontSize: '12px',
-        color: '#00ff00',
+        color: '#00ff00'
       })
       .setOrigin(0.5)
 
@@ -369,7 +402,7 @@ export class DevScene extends Scene {
       .text(startX + buttonWidth / 2, statsY + 45, '', {
         fontFamily: 'monospace',
         fontSize: '12px',
-        color: '#00ff00',
+        color: '#00ff00'
       })
       .setOrigin(0.5)
 
@@ -441,7 +474,7 @@ export class DevScene extends Scene {
       onComplete: () => {
         this.infoText.setColor('#888888')
         this.infoText.setText('Click blocks to mine! Press D for stat debug')
-      },
+      }
     })
   }
 
@@ -453,7 +486,10 @@ export class DevScene extends Scene {
       return
     }
 
-    const direction = this.normalizeVector(targetX - throwResult.origin.x, targetY - throwResult.origin.y)
+    const direction = this.normalizeVector(
+      targetX - throwResult.origin.x,
+      targetY - throwResult.origin.y
+    )
     this.launchAxeFromDirection(throwResult.projectile, throwResult.origin, direction)
   }
 
@@ -491,9 +527,17 @@ export class DevScene extends Scene {
 
       const reflected = this.reflectVector(direction, first.normal)
       const start = this.offsetPoint(first.point, reflected)
-      this.continueBounce(projectile, start, reflected, speed, () => this.miner.getPickaxeWorldPosition(), () => {
-        this.axeProjectiles.release(projectile)
-      }, state)
+      this.continueBounce(
+        projectile,
+        start,
+        reflected,
+        speed,
+        () => this.miner.getPickaxeWorldPosition(),
+        () => {
+          this.axeProjectiles.release(projectile)
+        },
+        state
+      )
     })
   }
 
@@ -532,15 +576,7 @@ export class DevScene extends Scene {
 
       const reflected = this.reflectVector(direction, next.normal)
       const nextStart = this.offsetPoint(next.point, reflected)
-      this.continueBounce(
-        projectile,
-        nextStart,
-        reflected,
-        speed,
-        getReturnPoint,
-        onReturn,
-        state
-      )
+      this.continueBounce(projectile, nextStart, reflected, speed, getReturnPoint, onReturn, state)
     })
   }
 
@@ -580,13 +616,19 @@ export class DevScene extends Scene {
     returnPoint: { x: number; y: number },
     ignoreBlockId: string
   ):
-    | { type: 'block'; point: { x: number; y: number }; normal: { x: number; y: number }; block: Block }
+    | {
+        type: 'block'
+        point: { x: number; y: number }
+        normal: { x: number; y: number }
+        block: Block
+      }
     | { type: 'wall'; point: { x: number; y: number }; normal: { x: number; y: number } }
     | { type: 'return'; point: { x: number; y: number } }
     | null {
     const bounds = this.miningGrid.getGridBounds()
     const epsilon = 0.0001
-    const candidates: { type: 'wall' | 'return'; t: number; normal?: { x: number; y: number } }[] = []
+    const candidates: { type: 'wall' | 'return'; t: number; normal?: { x: number; y: number } }[] =
+      []
 
     if (direction.x < -epsilon) {
       const t = (bounds.left - origin.x) / direction.x
@@ -613,8 +655,19 @@ export class DevScene extends Scene {
     const blockHit = this.findFirstBlockHit(origin, direction, ignoreBlockId)
 
     let closest:
-      | { type: 'block'; point: { x: number; y: number }; normal: { x: number; y: number }; block: Block; t: number }
-      | { type: 'wall'; point: { x: number; y: number }; normal: { x: number; y: number }; t: number }
+      | {
+          type: 'block'
+          point: { x: number; y: number }
+          normal: { x: number; y: number }
+          block: Block
+          t: number
+        }
+      | {
+          type: 'wall'
+          point: { x: number; y: number }
+          normal: { x: number; y: number }
+          t: number
+        }
       | { type: 'return'; point: { x: number; y: number }; t: number }
       | null = null
 
@@ -624,14 +677,14 @@ export class DevScene extends Scene {
         point: blockHit.point,
         normal: blockHit.normal,
         block: blockHit.block,
-        t: blockHit.t,
+        t: blockHit.t
       }
     }
 
     for (const candidate of candidates) {
       const point = {
         x: origin.x + direction.x * candidate.t,
-        y: origin.y + direction.y * candidate.t,
+        y: origin.y + direction.y * candidate.t
       }
       if (!closest || candidate.t < closest.t - 0.0001) {
         closest =
@@ -666,8 +719,18 @@ export class DevScene extends Scene {
     origin: { x: number; y: number },
     direction: { x: number; y: number },
     ignoreBlockId: string
-  ): { block: Block; point: { x: number; y: number }; normal: { x: number; y: number }; t: number } | null {
-    let closest: { block: Block; point: { x: number; y: number }; normal: { x: number; y: number }; t: number } | null = null
+  ): {
+    block: Block
+    point: { x: number; y: number }
+    normal: { x: number; y: number }
+    t: number
+  } | null {
+    let closest: {
+      block: Block
+      point: { x: number; y: number }
+      normal: { x: number; y: number }
+      t: number
+    } | null = null
 
     for (const block of this.miningGrid.getVisibleBlocks()) {
       if (!block.gameObject || block.isDead()) continue
@@ -698,15 +761,21 @@ export class DevScene extends Scene {
     return { x: x / length, y: y / length }
   }
 
-  private reflectVector(direction: { x: number; y: number }, normal: { x: number; y: number }): { x: number; y: number } {
+  private reflectVector(
+    direction: { x: number; y: number },
+    normal: { x: number; y: number }
+  ): { x: number; y: number } {
     const dot = direction.x * normal.x + direction.y * normal.y
     return {
       x: direction.x - 2 * dot * normal.x,
-      y: direction.y - 2 * dot * normal.y,
+      y: direction.y - 2 * dot * normal.y
     }
   }
 
-  private offsetPoint(point: { x: number; y: number }, direction: { x: number; y: number }): { x: number; y: number } {
+  private offsetPoint(
+    point: { x: number; y: number },
+    direction: { x: number; y: number }
+  ): { x: number; y: number } {
     return { x: point.x + direction.x * 2, y: point.y + direction.y * 2 }
   }
 
@@ -742,14 +811,18 @@ export class DevScene extends Scene {
 
     const point = {
       x: origin.x + direction.x * tHit,
-      y: origin.y + direction.y * tHit,
+      y: origin.y + direction.y * tHit
     }
 
     const axisNormal = this.getEntryNormal(direction, tMinX, tMinY)
     return { point, normal: axisNormal, t: tHit }
   }
 
-  private getEntryNormal(direction: { x: number; y: number }, tMinX: number, tMinY: number): { x: number; y: number } {
+  private getEntryNormal(
+    direction: { x: number; y: number },
+    tMinX: number,
+    tMinY: number
+  ): { x: number; y: number } {
     const epsilon = 0.000001
     const absX = Math.abs(direction.x)
     const absY = Math.abs(direction.y)

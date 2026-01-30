@@ -68,7 +68,10 @@ export class Block {
   readonly baseColor: number
 
   /** Reference to Phaser game object (set by renderer) */
-  gameObject: Phaser.GameObjects.Rectangle | null = null
+  gameObject: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Image | null = null
+
+  /** Optional frame behind the block image */
+  frameObject: Phaser.GameObjects.Rectangle | null = null
 
   /** Event listeners */
   private damageListeners: Set<BlockEventListener<BlockDamageEvent>> = new Set()
@@ -143,7 +146,7 @@ export class Block {
       damage: amount,
       oldHp,
       newHp: this._hp,
-      hpPercent: this.getHpPercent(),
+      hpPercent: this.getHpPercent()
     }
     for (const listener of this.damageListeners) {
       listener(damageEvent)
@@ -155,7 +158,7 @@ export class Block {
         block: this,
         x: this.x,
         y: this.y,
-        color: this.baseColor,
+        color: this.baseColor
       }
       for (const listener of this.destroyListeners) {
         listener(destroyEvent)
@@ -194,6 +197,10 @@ export class Block {
     if (this.gameObject) {
       this.gameObject.destroy()
       this.gameObject = null
+    }
+    if (this.frameObject) {
+      this.frameObject.destroy()
+      this.frameObject = null
     }
   }
 }
