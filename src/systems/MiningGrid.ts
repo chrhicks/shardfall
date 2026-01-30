@@ -7,8 +7,18 @@
  */
 
 import { Scene } from 'phaser'
-import { Block, BlockFactory } from '../objects'
-import { getTerrainTypeForDepth, getDamageColor, playBlockBreakEffect } from '../utils'
+import { Block, BlockFactory, OreBlock, isOreBlock } from '../objects'
+import { ORE_SPAWN_CHANCE, OreTier } from '../config/ores'
+import {
+  getTerrainTypeForDepth,
+  getDamageColor,
+  playBlockBreakEffect,
+  rollChance,
+  selectOreType,
+  getOreTierColor,
+  lightenColor,
+  darkenColor,
+} from '../utils'
 
 /** Grid configuration */
 export interface MiningGridConfig {
@@ -26,6 +36,8 @@ export interface MiningGridConfig {
   bufferRows?: number
   /** Number of empty rows at bottom of visible area (default: 0) */
   emptyRowsBottom?: number
+  /** Base ore spawn chance per block (default: ORE_SPAWN_CHANCE) */
+  oreSpawnChance?: number
 }
 
 const DEFAULT_CONFIG: Required<MiningGridConfig> = {
@@ -36,10 +48,17 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
   topY: 80,
   bufferRows: 1,
   emptyRowsBottom: 0,
+  oreSpawnChance: ORE_SPAWN_CHANCE,
 }
 
 /** Event types emitted by MiningGrid */
-export type MiningGridEventType = 'depth-change' | 'block-destroyed' | 'row-cleared' | 'block-clicked' | 'block-hovered'
+export type MiningGridEventType =
+  | 'depth-change'
+  | 'block-destroyed'
+  | 'row-cleared'
+  | 'block-clicked'
+  | 'block-hovered'
+  | 'ore-collected'
 
 /** Block clicked event */
 export interface BlockClickedEvent {
@@ -66,6 +85,17 @@ export interface DepthChangeEvent {
 /** Block destroyed event */
 export interface BlockDestroyedEvent {
   block: Block
+  worldX: number
+  worldY: number
+}
+
+/** Ore collected event */
+export interface OreCollectedEvent {
+  block: OreBlock
+  oreType: OreBlock['oreType']
+  tier: OreBlock['tier']
+  value: number
+  amount: number
   worldX: number
   worldY: number
 }
@@ -103,9 +133,13 @@ export class MiningGrid {
   /** Whether currently animating a scroll */
   private isScrolling = false
 
+  /** Queue a scroll request if one is already in progress */
+  private pendingScroll = false
+
   /** Event listeners */
   private depthListeners: Set<GridEventListener<DepthChangeEvent>> = new Set()
   private blockDestroyedListeners: Set<GridEventListener<BlockDestroyedEvent>> = new Set()
+  private oreCollectedListeners: Set<GridEventListener<OreCollectedEvent>> = new Set()
   private rowClearedListeners: Set<GridEventListener<RowClearedEvent>> = new Set()
   private blockClickedListeners: Set<GridEventListener<BlockClickedEvent>> = new Set()
   private blockHoveredListeners: Set<GridEventListener<BlockHoveredEvent>> = new Set()
@@ -118,7 +152,8 @@ export class MiningGrid {
     this.scene = scene
     const merged = { ...DEFAULT_CONFIG, ...config }
     const clampedEmptyRows = Math.max(0, Math.min(merged.emptyRowsBottom, merged.visibleRows - 1))
-    this.config = { ...merged, emptyRowsBottom: clampedEmptyRows }
+    const clampedOreChance = Math.max(0, Math.min(merged.oreSpawnChance, 1))
+    this.config = { ...merged, emptyRowsBottom: clampedEmptyRows, oreSpawnChance: clampedOreChance }
 
     // Create container at grid position
     const gridLeft = this.config.centerX - (this.config.gridWidth * this.config.blockSize) / 2
@@ -204,7 +239,12 @@ export class MiningGrid {
     } else {
       for (let col = 0; col < this.config.gridWidth; col++) {
         const blockType = getTerrainTypeForDepth(depth)
-        const block = BlockFactory.createBlock(blockType, col, rowIndex, depth)
+        const shouldSpawnOre = rollChance(this.config.oreSpawnChance)
+        const oreType = shouldSpawnOre ? selectOreType(depth) : null
+
+        const block = oreType
+          ? new OreBlock(oreType, blockType, col, rowIndex, depth)
+          : BlockFactory.createBlock(blockType, col, rowIndex, depth)
 
         // Subscribe to block events
         this.setupBlockListeners(block)
@@ -252,7 +292,22 @@ export class MiningGrid {
       // Play break effect
       playBlockBreakEffect(this.scene, worldPos.x, worldPos.y, block.baseColor)
 
-      // Emit event
+      // Emit ore collection event
+      if (isOreBlock(block)) {
+        for (const listener of this.oreCollectedListeners) {
+          listener({
+            block,
+            oreType: block.oreType,
+            tier: block.tier,
+            value: block.value,
+            amount: 1,
+            worldX: worldPos.x,
+            worldY: worldPos.y,
+          })
+        }
+      }
+
+      // Emit block destroyed event
       for (const listener of this.blockDestroyedListeners) {
         listener({ block, worldX: worldPos.x, worldY: worldPos.y })
       }
@@ -306,6 +361,14 @@ export class MiningGrid {
     const x = col * this.config.blockSize + this.config.blockSize / 2
     const y = row * this.config.blockSize + this.config.blockSize / 2
 
+    if (isOreBlock(block)) {
+      const glow = this.createOreGlow(block, x, y)
+      if (glow) {
+        this.container.add(glow.graphic)
+        block.attachGlowGraphic(glow.graphic, glow.tween)
+      }
+    }
+
     const rect = this.scene.add.rectangle(
       x,
       y,
@@ -329,6 +392,107 @@ export class MiningGrid {
 
     block.gameObject = rect
     this.container.add(rect)
+
+    if (isOreBlock(block)) {
+      const overlay = this.createOreOverlay(block, x, y)
+      if (overlay) {
+        this.container.add(overlay)
+        block.attachOverlayGraphic(overlay)
+      }
+
+      const highlight = this.createOreHighlight(block, x, y)
+      if (highlight) {
+        this.container.add(highlight.graphic)
+        block.attachHighlightGraphic(highlight.graphic, highlight.tween)
+      }
+    }
+  }
+
+  private createOreGlow(
+    block: OreBlock,
+    x: number,
+    y: number
+  ): { graphic: Phaser.GameObjects.Rectangle; tween: Phaser.Tweens.Tween | null } | null {
+    const glowAlphaByTier: Record<OreTier, number> = {
+      [OreTier.COMMON]: 0.05,
+      [OreTier.UNCOMMON]: 0.1,
+      [OreTier.RARE]: 0.16,
+      [OreTier.EPIC]: 0.22,
+      [OreTier.LEGENDARY]: 0.3,
+    }
+
+    const glowAlpha = glowAlphaByTier[block.tier]
+    if (glowAlpha <= 0) return null
+
+    const size = this.config.blockSize - 2
+    const glowColor = getOreTierColor(block.tier)
+    const glow = this.scene.add.rectangle(x, y, size, size, glowColor, glowAlpha)
+    glow.setBlendMode(Phaser.BlendModes.ADD)
+
+    let tween: Phaser.Tweens.Tween | null = null
+    if (block.tier === OreTier.EPIC || block.tier === OreTier.LEGENDARY) {
+      tween = this.scene.tweens.add({
+        targets: glow,
+        alpha: { from: glowAlpha, to: glowAlpha + 0.12 },
+        duration: 700,
+        yoyo: true,
+        repeat: -1,
+      })
+    }
+
+    return { graphic: glow, tween }
+  }
+
+  private createOreOverlay(block: OreBlock, x: number, y: number): Phaser.GameObjects.Rectangle | null {
+    const overlaySize = Math.max(10, this.config.blockSize * 0.32)
+    const overlayColor = lightenColor(block.baseColor, 0.18)
+    const overlay = this.scene.add.rectangle(x, y, overlaySize, overlaySize, overlayColor, 0.9)
+    overlay.setRotation(Math.PI / 4)
+    overlay.setStrokeStyle(1, darkenColor(overlayColor, 0.2))
+    return overlay
+  }
+
+  private createOreHighlight(
+    block: OreBlock,
+    x: number,
+    y: number
+  ): { graphic: Phaser.GameObjects.Rectangle; tween: Phaser.Tweens.Tween } | null {
+    const size = this.config.blockSize - 2
+    const highlight = this.scene.add.rectangle(x, y, size, size, 0x000000, 0)
+
+    const widthByTier: Record<OreTier, number> = {
+      [OreTier.COMMON]: 2,
+      [OreTier.UNCOMMON]: 2,
+      [OreTier.RARE]: 3,
+      [OreTier.EPIC]: 3,
+      [OreTier.LEGENDARY]: 4,
+    }
+
+    const alphaByTier: Record<OreTier, number> = {
+      [OreTier.COMMON]: 0.4,
+      [OreTier.UNCOMMON]: 0.5,
+      [OreTier.RARE]: 0.6,
+      [OreTier.EPIC]: 0.7,
+      [OreTier.LEGENDARY]: 0.8,
+    }
+
+    highlight.setStrokeStyle(
+      widthByTier[block.tier],
+      lightenColor(getOreTierColor(block.tier), 0.35),
+      alphaByTier[block.tier]
+    )
+    highlight.setVisible(false)
+
+    const tween = this.scene.tweens.add({
+      targets: highlight,
+      alpha: { from: 0.2, to: 0.85 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      paused: true,
+    })
+
+    return { graphic: highlight, tween }
   }
 
   /**
@@ -399,9 +563,8 @@ export class MiningGrid {
     // Remove game object
     if (block.gameObject) {
       this.container.remove(block.gameObject)
-      block.gameObject.destroy()
-      block.gameObject = null
     }
+    block.dispose()
 
     // Clear from grid
     if (this.blocks[row]) {
@@ -410,6 +573,9 @@ export class MiningGrid {
 
     // Check if row is cleared
     this.checkRowCleared(row)
+
+    // Evaluate scroll eligibility after removal
+    this.evaluateScroll()
   }
 
   /**
@@ -428,10 +594,27 @@ export class MiningGrid {
       listener({ depth })
     }
 
-    // If bottom-most visible row is cleared, scroll down
-    if (row >= this.getBottomActiveRowIndex()) {
-      this.scrollDown()
+  }
+
+  private evaluateScroll(): void {
+    if (this.canScroll()) {
+      this.requestScroll()
     }
+  }
+
+  private canScroll(): boolean {
+    const bottomActiveRow = this.getBottomActiveRowIndex()
+    const rowBlocks = this.blocks[bottomActiveRow]
+    const bottomCleared = !rowBlocks || rowBlocks.every((block) => block === null)
+    return bottomCleared || !this.hasActiveBlocks()
+  }
+
+  private requestScroll(): void {
+    if (this.isScrolling) {
+      this.pendingScroll = true
+      return
+    }
+    this.scrollDown()
   }
 
   /**
@@ -485,8 +668,12 @@ export class MiningGrid {
         const block = this.blocks[row][col]
         if (block && block.gameObject) {
           // Update visual position
+          const x = col * this.config.blockSize + this.config.blockSize / 2
           const y = row * this.config.blockSize + this.config.blockSize / 2
-          block.gameObject.setY(y)
+          block.gameObject.setPosition(x, y)
+          if (isOreBlock(block)) {
+            block.updateVisualPosition(x, y)
+          }
 
           // Re-wire event listeners with updated row index
           // Remove old listeners
@@ -516,6 +703,20 @@ export class MiningGrid {
     this.enforceBottomGap()
 
     this.isScrolling = false
+    this.pendingScroll = false
+    this.evaluateScroll()
+  }
+
+  private hasActiveBlocks(): boolean {
+    const endRow = Math.min(this.blocks.length, this.getBottomGapStartIndex())
+    for (let row = 0; row < endRow; row++) {
+      const rowBlocks = this.blocks[row]
+      if (!rowBlocks) continue
+      if (rowBlocks.some((block) => block !== null)) {
+        return true
+      }
+    }
+    return false
   }
 
   /**
@@ -593,6 +794,14 @@ export class MiningGrid {
   }
 
   /**
+   * Subscribe to ore collected events
+   */
+  onOreCollected(listener: GridEventListener<OreCollectedEvent>): () => void {
+    this.oreCollectedListeners.add(listener)
+    return () => this.oreCollectedListeners.delete(listener)
+  }
+
+  /**
    * Subscribe to row cleared events
    */
   onRowCleared(listener: GridEventListener<RowClearedEvent>): () => void {
@@ -649,6 +858,7 @@ export class MiningGrid {
     // Clear listeners
     this.depthListeners.clear()
     this.blockDestroyedListeners.clear()
+    this.oreCollectedListeners.clear()
     this.rowClearedListeners.clear()
     this.blockClickedListeners.clear()
     this.blockHoveredListeners.clear()

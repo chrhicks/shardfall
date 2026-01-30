@@ -64,7 +64,7 @@ export class Block {
   /** Grid row position */
   readonly y: number
 
-  /** Base color from config */
+  /** Base color for rendering */
   readonly baseColor: number
 
   /** Reference to Phaser game object (set by renderer) */
@@ -83,13 +83,15 @@ export class Block {
    * @param y - Grid row
    * @param depth - Depth level (for HP scaling)
    * @param scaledHp - Pre-calculated HP after depth scaling
+   * @param baseColorOverride - Optional color override
    */
   constructor(
     type: BlockType,
     x: number,
     y: number,
     depth: number,
-    scaledHp: number
+    scaledHp: number,
+    baseColorOverride?: number
   ) {
     this.id = generateBlockId()
     this.type = type
@@ -98,7 +100,7 @@ export class Block {
     this.depth = depth
     this.maxHp = scaledHp
     this._hp = scaledHp
-    this.baseColor = BLOCK_CONFIG[type].color
+    this.baseColor = baseColorOverride ?? BLOCK_CONFIG[type].color
   }
 
   /**

@@ -30,6 +30,18 @@ export {
   type WeightedItem,
 } from './random'
 
+// Ore utilities
+export {
+  getOreTierWeights,
+  getOreTypesByTier,
+  selectOreType,
+  getOreTierColor,
+  getOreColor,
+} from './ore'
+
+// Ore visual effects
+export { playOreCollectEffect, type OreCollectEffectConfig } from './oreVisuals'
+
 // Terrain distribution
 export {
   getTerrainTypeForDepth,

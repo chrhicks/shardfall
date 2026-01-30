@@ -10,6 +10,8 @@
  */
 
 import { Scene } from 'phaser'
+import { OreType } from '../config'
+import { InventorySystem } from '../systems/InventorySystem'
 import { MiningGrid } from '../systems/MiningGrid'
 import { StatSystem } from '../systems/StatSystem'
 import { StatType } from '../types/stats'
@@ -17,22 +19,31 @@ import { StatDebugPanel } from '../ui/StatDebugPanel'
 import { CaveFrame } from '../ui/CaveFrame'
 import { DepthIndicator } from '../ui/DepthIndicator'
 import { TargetIndicator } from '../ui/TargetIndicator'
+import { GoldDisplay } from '../ui/GoldDisplay'
+import { InventoryPanel } from '../ui/InventoryPanel'
 import { Miner } from '../objects/Miner'
 import { AxeProjectile, AxeProjectilePool } from '../objects/AxeProjectile'
 import { Block } from '../objects/Block'
 import { showDamageNumber, playBlockHitEffect, flashWhite } from '../utils/BlockEffects'
+import { playOreCollectEffect } from '../utils'
 
 export class DevScene extends Scene {
   private miningGrid!: MiningGrid
+  private inventory!: InventorySystem
   private miner!: Miner
   private axeProjectiles!: AxeProjectilePool
   private targetIndicator!: TargetIndicator
   private caveFrame!: CaveFrame
   private depthIndicator!: DepthIndicator
+  private goldDisplay!: GoldDisplay
+  private inventoryPanel!: InventoryPanel
   private statDebugPanel!: StatDebugPanel
   private infoText!: Phaser.GameObjects.Text
   private axeLane?: Phaser.GameObjects.Rectangle
   private blockSize = 64
+  private unsubscribeGoldChanged?: () => void
+  private unsubscribeOreChanged?: () => void
+  private unsubscribeOreSold?: () => void
 
   constructor() {
     super('DevScene')
@@ -88,8 +99,90 @@ export class DevScene extends Scene {
       emptyRowsBottom,
     })
 
+    this.inventory = InventorySystem.getInstance()
+
+    this.goldDisplay = new GoldDisplay(this, {
+      x: gridLeft - 80,
+      y: 60,
+      initialGold: this.inventory.getGold(),
+    })
+
+    this.unsubscribeGoldChanged = this.inventory.onGoldChanged((event) => {
+      this.goldDisplay.setGold(event.newGold)
+      if (event.delta > 0) {
+        this.goldDisplay.playGainEffect(event.delta)
+      }
+    })
+
+    this.inventoryPanel = new InventoryPanel(this, {
+      x: 660,
+      y: 490,
+      onSellOre: (oreType) => {
+        this.inventory.sellOre(oreType)
+      },
+    })
+
+    this.unsubscribeOreChanged = this.inventory.onOreChanged((event) => {
+      this.inventoryPanel.setOreCount(event.oreType, event.newCount)
+    })
+
+    this.unsubscribeOreSold = this.inventory.onOreSold((event) => {
+      this.inventoryPanel.playSellFeedback(event.oreType, event.goldEarned)
+    })
+
+    for (const oreType of Object.values(OreType)) {
+      this.inventoryPanel.setOreCount(oreType, this.inventory.getOreCount(oreType))
+    }
+
     // Get grid bounds for positioning other elements
     const gridBounds = this.miningGrid.getGridBounds()
+
+    const oreTargetX = this.cameras.main.width - 70
+    const oreTargetY = 70
+    const oreAnchor = this.add.rectangle(oreTargetX, oreTargetY, 28, 28, 0x1f2937, 0.85)
+    oreAnchor.setStrokeStyle(2, 0xffcc66)
+    oreAnchor.setDepth(30)
+    this.add
+      .text(oreTargetX, oreTargetY + 24, 'ORE', {
+        fontFamily: 'Arial Black',
+        fontSize: '11px',
+        color: '#ffcc66',
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(30)
+
+    const sellButtonY = oreTargetY + 58
+    const sellButton = this.add.rectangle(oreTargetX, sellButtonY, 88, 26, 0x2b3a2f, 0.95)
+    sellButton.setStrokeStyle(2, 0x4a7a52)
+    sellButton.setDepth(30)
+    sellButton.setInteractive({ useHandCursor: true })
+
+    const sellLabel = this.add
+      .text(oreTargetX, sellButtonY, 'SELL ALL', {
+        fontFamily: 'Arial Black',
+        fontSize: '11px',
+        color: '#d7f5c4',
+      })
+      .setOrigin(0.5)
+      .setDepth(31)
+
+    sellButton.on('pointerdown', () => {
+      const earned = this.inventory.sellAllOres()
+      if (earned <= 0) {
+        this.flashInfo('No ores to sell')
+        return
+      }
+      sellButton.setFillStyle(0x23412a)
+    })
+    sellButton.on('pointerup', () => sellButton.setFillStyle(0x2b3a2f))
+    sellButton.on('pointerover', () => {
+      sellButton.setFillStyle(0x3a4f3f)
+      sellLabel.setScale(1.05)
+    })
+    sellButton.on('pointerout', () => {
+      sellButton.setFillStyle(0x2b3a2f)
+      sellLabel.setScale(1)
+    })
 
     // Create projectile pool for throws
     this.axeProjectiles = new AxeProjectilePool(this, { size: 6, depth: 18 })
@@ -148,8 +241,23 @@ export class DevScene extends Scene {
       this.depthIndicator.setDepth(event.newDepth)
     })
 
+    // Ore collection visuals (placeholder for inventory UI)
+    this.miningGrid.onOreCollected((event) => {
+      this.inventory.addOre(event.oreType, event.amount)
+      playOreCollectEffect(
+        this,
+        event.worldX,
+        event.worldY,
+        event.block.baseColor,
+        oreTargetX,
+        oreTargetY
+      )
+    })
+
     // Stat debug panel (press D to toggle)
-    this.statDebugPanel = new StatDebugPanel(this)
+    this.statDebugPanel = new StatDebugPanel(this, {
+      getDepth: () => this.miningGrid.currentDepth,
+    })
 
     // Info text
     const infoY = Math.min(minerY + 60, 720)
@@ -666,7 +774,12 @@ export class DevScene extends Scene {
     this.targetIndicator.destroy()
     this.caveFrame.destroy()
     this.depthIndicator.destroy()
+    this.goldDisplay.destroy()
+    this.inventoryPanel.destroy()
     this.statDebugPanel.destroy()
     this.axeLane?.destroy()
+    this.unsubscribeGoldChanged?.()
+    this.unsubscribeOreChanged?.()
+    this.unsubscribeOreSold?.()
   }
 }
