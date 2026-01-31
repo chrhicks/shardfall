@@ -381,8 +381,8 @@ export class MiningGrid {
         y,
         this.config.blockSize,
         this.config.blockSize,
-        block.baseColor,
-        1
+        0x141a2a,
+        0.95
       )
       frame.setStrokeStyle(1, 0x1a1f30, 0.6)
       this.container.add(frame)
@@ -403,6 +403,12 @@ export class MiningGrid {
       block.gameObject = image
       block.frameObject = frame
       this.container.add(image)
+
+      const rarityOverlay = this.createRarityOverlay(block, x, y)
+      if (rarityOverlay) {
+        block.rarityOverlay = rarityOverlay
+        this.container.add(rarityOverlay)
+      }
     } else {
       const rect = this.scene.add.rectangle(
         x,
@@ -457,6 +463,45 @@ export class MiningGrid {
     if (!textures || textures.length === 0) return null
     const index = Math.abs(block.x + block.y + block.depth) % textures.length
     return textures[index]
+  }
+
+  private createRarityOverlay(
+    block: Block,
+    x: number,
+    y: number
+  ): Phaser.GameObjects.Graphics | null {
+    if (isOreBlock(block)) return null
+
+    const overlayAlphaByType: Record<BlockType, { fill: number; stroke: number }> = {
+      [BlockType.STONE]: { fill: 0.05, stroke: 0.2 },
+      [BlockType.HARD_ROCK]: { fill: 0.1, stroke: 0.28 },
+      [BlockType.DENSE_ROCK]: { fill: 0.14, stroke: 0.34 },
+      [BlockType.ANCIENT_STONE]: { fill: 0.2, stroke: 0.4 }
+    }
+
+    const overlayConfig = overlayAlphaByType[block.type]
+    if (!overlayConfig || overlayConfig.fill <= 0) return null
+
+    const size = this.config.blockSize
+    const half = size / 2
+    const inset = Math.max(4, Math.floor(size * 0.16))
+    const diamondSize = size - inset * 2
+
+    const overlay = this.scene.add.graphics({ x, y })
+    overlay.fillStyle(block.baseColor, overlayConfig.fill)
+    overlay.beginPath()
+    overlay.moveTo(0, -diamondSize / 2)
+    overlay.lineTo(diamondSize / 2, 0)
+    overlay.lineTo(0, diamondSize / 2)
+    overlay.lineTo(-diamondSize / 2, 0)
+    overlay.closePath()
+    overlay.fillPath()
+
+    overlay.lineStyle(2, block.baseColor, overlayConfig.stroke)
+    overlay.strokeRect(-half + inset, -half + inset, size - inset * 2, size - inset * 2)
+    overlay.setBlendMode(Phaser.BlendModes.SCREEN)
+
+    return overlay
   }
 
   private createOreGlow(
@@ -728,6 +773,9 @@ export class MiningGrid {
           block.gameObject.setPosition(x, y)
           if (block.frameObject) {
             block.frameObject.setPosition(x, y)
+          }
+          if (block.rarityOverlay) {
+            block.rarityOverlay.setPosition(x, y)
           }
           if (isOreBlock(block)) {
             block.updateVisualPosition(x, y)

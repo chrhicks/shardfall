@@ -73,6 +73,9 @@ export class Block {
   /** Optional frame behind the block image */
   frameObject: Phaser.GameObjects.Rectangle | null = null
 
+  /** Optional overlay used to highlight block rarity */
+  rarityOverlay: Phaser.GameObjects.Graphics | null = null
+
   /** Event listeners */
   private damageListeners: Set<BlockEventListener<BlockDamageEvent>> = new Set()
   private destroyListeners: Set<BlockEventListener<BlockDestroyEvent>> = new Set()
@@ -201,6 +204,10 @@ export class Block {
     if (this.frameObject) {
       this.frameObject.destroy()
       this.frameObject = null
+    }
+    if (this.rarityOverlay) {
+      this.rarityOverlay.destroy()
+      this.rarityOverlay = null
     }
   }
 }

@@ -29,21 +29,59 @@ import { playOreCollectEffect } from '../utils'
 import { BlockType } from '../config/blocks'
 
 const TERRAIN_TILE_ASSETS: Record<string, string> = {
-  terrain_stone_01: 'assets/tiles/terrain/stone_01.png',
-  terrain_stone_02: 'assets/tiles/terrain/stone_02.png',
-  terrain_hard_rock_01: 'assets/tiles/terrain/hard_rock_01.png',
-  terrain_hard_rock_02: 'assets/tiles/terrain/hard_rock_02.png',
-  terrain_dense_rock_01: 'assets/tiles/terrain/dense_rock_01.png',
-  terrain_dense_rock_02: 'assets/tiles/terrain/dense_rock_02.png',
-  terrain_ancient_stone_01: 'assets/tiles/terrain/ancient_stone_01.png',
-  terrain_ancient_stone_02: 'assets/tiles/terrain/ancient_stone_02.png'
+  terrain_stone_01: 'assets/tiles/terrain_48/stone_01.png',
+  terrain_stone_02: 'assets/tiles/terrain_48/stone_02.png',
+  terrain_stone_03: 'assets/tiles/terrain_48/stone_03.png',
+  terrain_stone_04: 'assets/tiles/terrain_48/stone_04.png',
+  terrain_hard_rock_01: 'assets/tiles/terrain_48/stone_hard_01.png',
+  terrain_hard_rock_02: 'assets/tiles/terrain_48/stone_hard_02.png',
+  terrain_hard_rock_03: 'assets/tiles/terrain_48/stone_hard_03.png',
+  terrain_hard_rock_04: 'assets/tiles/terrain_48/stone_hard_04.png',
+  terrain_dense_rock_01: 'assets/tiles/terrain_48/basalt_01.png',
+  terrain_dense_rock_02: 'assets/tiles/terrain_48/basalt_02.png',
+  terrain_dense_rock_03: 'assets/tiles/terrain_48/basalt_03.png',
+  terrain_dense_rock_04: 'assets/tiles/terrain_48/basalt_04.png',
+  terrain_ancient_stone_01: 'assets/tiles/terrain_48/ancient_01.png',
+  terrain_ancient_stone_02: 'assets/tiles/terrain_48/ancient_02.png',
+  terrain_ancient_stone_03: 'assets/tiles/terrain_48/ancient_03.png',
+  terrain_ancient_stone_04: 'assets/tiles/terrain_48/ancient_04.png',
+  terrain_ancient_stone_05: 'assets/tiles/terrain_48/ancient_05.png',
+  terrain_ancient_stone_06: 'assets/tiles/terrain_48/ancient_06.png',
+  terrain_ancient_stone_07: 'assets/tiles/terrain_48/ancient_07.png',
+  terrain_ancient_stone_08: 'assets/tiles/terrain_48/ancient_08.png',
+  terrain_ancient_stone_09: 'assets/tiles/terrain_48/ancient_09.png'
 }
 
 const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
-  [BlockType.STONE]: ['terrain_stone_01', 'terrain_stone_02'],
-  [BlockType.HARD_ROCK]: ['terrain_hard_rock_01', 'terrain_hard_rock_02'],
-  [BlockType.DENSE_ROCK]: ['terrain_dense_rock_01', 'terrain_dense_rock_02'],
-  [BlockType.ANCIENT_STONE]: ['terrain_ancient_stone_01', 'terrain_ancient_stone_02']
+  [BlockType.STONE]: [
+    'terrain_stone_01',
+    'terrain_stone_02',
+    'terrain_stone_03',
+    'terrain_stone_04'
+  ],
+  [BlockType.HARD_ROCK]: [
+    'terrain_hard_rock_01',
+    'terrain_hard_rock_02',
+    'terrain_hard_rock_03',
+    'terrain_hard_rock_04'
+  ],
+  [BlockType.DENSE_ROCK]: [
+    'terrain_dense_rock_01',
+    'terrain_dense_rock_02',
+    'terrain_dense_rock_03',
+    'terrain_dense_rock_04'
+  ],
+  [BlockType.ANCIENT_STONE]: [
+    'terrain_ancient_stone_01',
+    'terrain_ancient_stone_02',
+    'terrain_ancient_stone_03',
+    'terrain_ancient_stone_04',
+    'terrain_ancient_stone_05',
+    'terrain_ancient_stone_06',
+    'terrain_ancient_stone_07',
+    'terrain_ancient_stone_08',
+    'terrain_ancient_stone_09'
+  ]
 }
 
 export class DevScene extends Scene {
