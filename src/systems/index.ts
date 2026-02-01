@@ -8,9 +8,9 @@ export {
   type DepthChangeEvent,
   type BlockDestroyedEvent,
   type OreCollectedEvent,
-  type RowClearedEvent,
+  type GridClearedEvent,
   type BlockClickedEvent,
   type BlockHoveredEvent,
   type BlockClickHandler,
-  type BlockHoverHandler,
+  type BlockHoverHandler
 } from './MiningGrid'

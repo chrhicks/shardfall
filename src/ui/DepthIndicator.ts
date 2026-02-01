@@ -52,7 +52,7 @@ export class DepthIndicator {
     this.labelText = scene.add.text(0, -15, 'DEPTH', {
       fontFamily: 'Arial',
       fontSize: '12px',
-      color: '#888888',
+      color: '#888888'
     })
     this.labelText.setOrigin(0.5)
     this.container.add(this.labelText)
@@ -61,7 +61,7 @@ export class DepthIndicator {
     this.valueText = scene.add.text(0, 10, '0', {
       fontFamily: 'Arial Black',
       fontSize: '24px',
-      color: '#ffffff',
+      color: '#ffffff'
     })
     this.valueText.setOrigin(0.5)
     this.container.add(this.valueText)
@@ -82,8 +82,11 @@ export class DepthIndicator {
    */
   setDepth(depth: number): void {
     const oldDepth = this._depth
+    if (depth === oldDepth) return
     this._depth = depth
     this.updateDisplay()
+
+    this.playDepthChangeEffect()
 
     // Check for milestone crossing
     if (this.crossedMilestone(oldDepth, depth)) {
@@ -134,7 +137,7 @@ export class DepthIndicator {
       alpha: { from: 0.5, to: 0 },
       scale: { from: 1, to: 1.3 },
       duration: 500,
-      ease: 'Power2',
+      ease: 'Power2'
     })
 
     // Scale pop
@@ -145,7 +148,7 @@ export class DepthIndicator {
       ease: 'Back.easeOut',
       onComplete: () => {
         this.updateDisplay() // Reset color
-      },
+      }
     })
 
     // Shake
@@ -154,7 +157,23 @@ export class DepthIndicator {
       x: this.container.x + 3,
       duration: 50,
       yoyo: true,
-      repeat: 3,
+      repeat: 3
+    })
+  }
+
+  private playDepthChangeEffect(): void {
+    this.scene.tweens.add({
+      targets: this.valueText,
+      scale: { from: 1.2, to: 1 },
+      duration: 300,
+      ease: 'Back.easeOut'
+    })
+
+    this.scene.tweens.add({
+      targets: this.milestoneGlow,
+      alpha: { from: 0.15, to: 0 },
+      duration: 200,
+      ease: 'Quad.easeOut'
     })
   }
 

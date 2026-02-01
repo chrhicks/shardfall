@@ -137,6 +137,7 @@ export class DevScene extends Scene {
   private targetIndicator!: TargetIndicator
   private caveFrame!: CaveFrame
   private depthIndicator!: DepthIndicator
+  private gridProgressText!: Phaser.GameObjects.Text
   private goldDisplay!: GoldDisplay
   private inventoryPanel!: InventoryPanel
   private statDebugPanel!: StatDebugPanel
@@ -356,9 +357,29 @@ export class DevScene extends Scene {
       y: gridBounds.top + 50
     })
 
+    this.gridProgressText = this.add
+      .text(depthX, gridBounds.top + 82, '', {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#999999'
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+
     // Subscribe to depth changes
     this.miningGrid.onDepthChange((event) => {
       this.depthIndicator.setDepth(event.newDepth)
+    })
+
+    this.miningGrid.onGridCleared(() => {
+      this.targetIndicator.hide()
+      this.updateGridProgress()
+    })
+
+    this.miningGrid.onBlockDestroyed(() => {
+      this.time.delayedCall(0, () => {
+        this.updateGridProgress()
+      })
     })
 
     // Ore collection visuals (placeholder for inventory UI)
@@ -394,12 +415,29 @@ export class DevScene extends Scene {
 
     // Instructions
     this.add
-      .text(512, Math.min(infoY + 32, 748), 'Clear bottom row to scroll deeper', {
+      .text(512, Math.min(infoY + 32, 748), 'Clear the entire grid to go deeper', {
         fontFamily: 'Arial',
         fontSize: '14px',
         color: '#666666'
       })
       .setOrigin(0.5)
+
+    this.updateGridProgress()
+  }
+
+  private updateGridProgress(): void {
+    const { blocksPerGrid, blocksCleared } = this.miningGrid.getGridClearStats()
+    const remaining = Math.max(0, blocksPerGrid - blocksCleared)
+
+    let color = '#999999'
+    if (remaining === 0) {
+      color = '#7ce38b'
+    } else if (remaining <= 5) {
+      color = '#f5d76e'
+    }
+
+    this.gridProgressText.setColor(color)
+    this.gridProgressText.setText(`Blocks Remaining: ${remaining}`)
   }
 
   private createTestControls() {

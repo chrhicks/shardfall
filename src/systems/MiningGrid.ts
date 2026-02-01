@@ -2,8 +2,8 @@
  * MiningGrid - Core grid system managing blocks and rendering
  *
  * The mining grid is the central visual and interactive element.
- * Displays blocks in a vertical scrolling layout, handles block
- * generation, rendering, scrolling, and visibility culling.
+ * Displays blocks in a fixed grid, handles block generation,
+ * rendering, grid clears, and visibility culling.
  */
 
 import { Scene } from 'phaser'
@@ -61,7 +61,7 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
 export type MiningGridEventType =
   | 'depth-change'
   | 'block-destroyed'
-  | 'row-cleared'
+  | 'grid-cleared'
   | 'block-clicked'
   | 'block-hovered'
   | 'ore-collected'
@@ -106,9 +106,14 @@ export interface OreCollectedEvent {
   worldY: number
 }
 
-/** Row cleared event */
-export interface RowClearedEvent {
-  depth: number
+/** Grid cleared event */
+export interface GridClearedEvent {
+  oldDepth: number
+  newDepth: number
+  blocksCleared: number
+  oreCollected: Record<OreType, number>
+  timeSpent: number
+  goldEarned: number
 }
 
 type GridEventListener<T> = (event: T) => void
@@ -133,22 +138,18 @@ export class MiningGrid {
   /** Current depth (top row's depth) */
   private _currentDepth = 0
 
-  /** Total rows generated (for generating new rows) */
-  private totalRowsGenerated = 0
-
-  /** Whether currently animating a scroll */
-  private isScrolling = false
-
-  /** Queue a scroll request if one is already in progress */
-  private pendingScroll = false
-
   /** Event listeners */
   private depthListeners: Set<GridEventListener<DepthChangeEvent>> = new Set()
   private blockDestroyedListeners: Set<GridEventListener<BlockDestroyedEvent>> = new Set()
   private oreCollectedListeners: Set<GridEventListener<OreCollectedEvent>> = new Set()
-  private rowClearedListeners: Set<GridEventListener<RowClearedEvent>> = new Set()
+  private gridClearedListeners: Set<GridEventListener<GridClearedEvent>> = new Set()
   private blockClickedListeners: Set<GridEventListener<BlockClickedEvent>> = new Set()
   private blockHoveredListeners: Set<GridEventListener<BlockHoveredEvent>> = new Set()
+
+  /** Grid clear tracking */
+  private blocksPerGrid = 0
+  private blocksClearedThisGrid = 0
+  private gridStartTime = 0
 
   /** Currently hovered block position */
   private hoveredCol = -1
@@ -160,6 +161,11 @@ export class MiningGrid {
     const clampedEmptyRows = Math.max(0, Math.min(merged.emptyRowsBottom, merged.visibleRows - 1))
     const clampedOreChance = Math.max(0, Math.min(merged.oreSpawnChance, 1))
     this.config = { ...merged, emptyRowsBottom: clampedEmptyRows, oreSpawnChance: clampedOreChance }
+
+    this.blocksPerGrid =
+      this.config.gridWidth * (this.config.visibleRows - this.config.emptyRowsBottom)
+    this.blocksClearedThisGrid = 0
+    this.gridStartTime = scene.time.now
 
     // Create container at grid position
     const gridLeft = this.config.centerX - (this.config.gridWidth * this.config.blockSize) / 2
@@ -204,6 +210,17 @@ export class MiningGrid {
   }
 
   /**
+   * Grid clear tracking snapshot (used by UI or analytics)
+   */
+  getGridClearStats(): { blocksPerGrid: number; blocksCleared: number; gridStartTime: number } {
+    return {
+      blocksPerGrid: this.blocksPerGrid,
+      blocksCleared: this.blocksClearedThisGrid,
+      gridStartTime: this.gridStartTime
+    }
+  }
+
+  /**
    * Block size in pixels
    */
   get blockSize(): number {
@@ -227,7 +244,6 @@ export class MiningGrid {
       this.generateRow(row)
     }
 
-    this.totalRowsGenerated = totalRows
     this.enforceBottomGap()
   }
 
@@ -296,7 +312,7 @@ export class MiningGrid {
     // Handle destruction
     block.onDestroy(() => {
       const worldFromObject = this.getBlockWorldPositionFromGameObject(block)
-      // Find the block's current position in the grid (may have shifted due to scrolling)
+      // Find the block's current position in the grid (may have shifted during grid rebuild)
       const gridPos =
         this.findBlockPosition(block) ??
         (worldFromObject
@@ -744,166 +760,81 @@ export class MiningGrid {
       this.blocks[row][col] = null
     }
 
-    // Check if row is cleared
-    this.checkRowCleared(row)
-
-    // Evaluate scroll eligibility after removal
-    this.evaluateScroll()
+    this.blocksClearedThisGrid = Math.min(this.blocksClearedThisGrid + 1, this.blocksPerGrid)
+    this.evaluateGridClear()
   }
 
   /**
-   * Check if a row is fully cleared and handle scrolling
+   * Check if the entire visible grid (excluding bottom gap) is cleared.
    */
-  private checkRowCleared(row: number): void {
-    const rowBlocks = this.blocks[row]
-    if (!rowBlocks) return
-
-    const isCleared = rowBlocks.every((block) => block === null)
-    if (!isCleared) return
-
-    // Emit row cleared event
-    const depth = this._currentDepth + row
-    for (const listener of this.rowClearedListeners) {
-      listener({ depth })
-    }
-  }
-
-  private evaluateScroll(): void {
-    if (this.canScroll()) {
-      this.requestScroll()
-    }
-  }
-
-  private canScroll(): boolean {
-    const bottomActiveRow = this.getBottomActiveRowIndex()
-    const rowBlocks = this.blocks[bottomActiveRow]
-    const bottomCleared = !rowBlocks || rowBlocks.every((block) => block === null)
-    return bottomCleared || !this.hasActiveBlocks()
-  }
-
-  private requestScroll(): void {
-    if (this.isScrolling) {
-      this.pendingScroll = true
-      return
-    }
-    this.scrollDown()
-  }
-
-  /**
-   * Scroll the grid down by one row
-   */
-  private scrollDown(): void {
-    if (this.isScrolling) return
-    this.isScrolling = true
-
-    const oldDepth = this._currentDepth
-    this._currentDepth++
-
-    // Emit depth change
-    for (const listener of this.depthListeners) {
-      listener({ oldDepth, newDepth: this._currentDepth })
-    }
-
-    // Animate scroll
-    this.scene.tweens.add({
-      targets: this.container,
-      y: this.container.y + this.config.blockSize,
-      duration: 200,
-      ease: 'Power2',
-      onComplete: () => {
-        this.onScrollComplete()
+  checkGridCleared(): boolean {
+    const endRow = Math.min(this.blocks.length, this.getBottomGapStartIndex())
+    for (let row = 0; row < endRow; row++) {
+      const rowBlocks = this.blocks[row]
+      if (!rowBlocks) continue
+      if (rowBlocks.some((block) => block !== null)) {
+        return false
       }
-    })
+    }
+    return true
   }
 
   /**
-   * Called when scroll animation completes
+   * Replace the grid instantly and advance depth by 1.
    */
-  private onScrollComplete(): void {
-    // Remove bottom row (now off-screen)
-    const bottomRow = this.blocks.pop()
-    if (bottomRow) {
-      for (const block of bottomRow) {
+  spawnNewGrid(): void {
+    const oldDepth = this._currentDepth
+    const blocksCleared = this.blocksClearedThisGrid
+    const timeSpent = this.scene.time.now - this.gridStartTime
+
+    for (const row of this.blocks) {
+      for (const block of row) {
         if (block) {
           block.dispose()
         }
       }
     }
 
-    // Insert new top row (revealed at the top after scrolling down)
-    this.generateRow(0, true)
-    this.totalRowsGenerated++
+    this.blocks = []
 
-    // Update row indices for remaining blocks and their visual positions
-    for (let row = 0; row < this.blocks.length; row++) {
-      for (let col = 0; col < this.config.gridWidth; col++) {
-        const block = this.blocks[row][col]
-        if (block && block.gameObject) {
-          // Update visual position
-          const x = col * this.config.blockSize + this.config.blockSize / 2
-          const y = row * this.config.blockSize + this.config.blockSize / 2
-          block.gameObject.setPosition(x, y)
-          if (block.frameObject) {
-            block.frameObject.setPosition(x, y)
-          }
-          if (block.rarityOverlay) {
-            block.rarityOverlay.setPosition(x, y)
-          }
-          if (isOreBlock(block)) {
-            block.updateVisualPosition(x, y)
-          }
+    this._currentDepth++
+    this.blocksClearedThisGrid = 0
+    this.gridStartTime = this.scene.time.now
 
-          // Re-wire event listeners with updated row index
-          // Remove old listeners
-          block.gameObject.removeAllListeners('pointerdown')
-          block.gameObject.removeAllListeners('pointerover')
-          block.gameObject.removeAllListeners('pointerout')
+    const oreCollected = Object.values(OreType).reduce(
+      (acc, oreType) => {
+        acc[oreType] = 0
+        return acc
+      },
+      {} as Record<OreType, number>
+    )
 
-          // Add new listeners with correct row
-          const currentRow = row // Capture in closure
-          const currentCol = col
-          block.gameObject.on('pointerdown', () => {
-            this.emitBlockClicked(block, currentCol, currentRow)
-          })
-          block.gameObject.on('pointerover', () => {
-            this.emitBlockHovered(block, currentCol, currentRow)
-          })
-          block.gameObject.on('pointerout', () => {
-            this.emitBlockHovered(null, currentCol, currentRow)
-          })
-        }
-      }
+    for (const listener of this.gridClearedListeners) {
+      listener({
+        oldDepth,
+        newDepth: this._currentDepth,
+        blocksCleared,
+        oreCollected,
+        timeSpent,
+        goldEarned: 0
+      })
     }
 
-    // Reset container position after scroll
-    this.container.y = this.config.topY
-
-    this.enforceBottomGap()
-
-    this.isScrolling = false
-    const shouldContinue = this.pendingScroll
-    this.pendingScroll = false
-    if (shouldContinue) {
-      this.scrollDown()
-      return
+    for (const listener of this.depthListeners) {
+      listener({ oldDepth, newDepth: this._currentDepth })
     }
-    this.evaluateScroll()
+
+    this.initializeGrid()
   }
 
-  private hasActiveBlocks(): boolean {
-    const endRow = Math.min(this.blocks.length, this.getBottomGapStartIndex())
-    for (let row = 0; row < endRow; row++) {
-      const rowBlocks = this.blocks[row]
-      if (!rowBlocks) continue
-      if (rowBlocks.some((block) => block !== null)) {
-        return true
-      }
+  private evaluateGridClear(): void {
+    if (this.checkGridCleared()) {
+      this.spawnNewGrid()
     }
-    return false
   }
 
   /**
-   * Ensure bottom gap rows stay empty after scrolls.
+   * Ensure bottom gap rows stay empty after grid builds.
    */
   private enforceBottomGap(): void {
     if (this.config.emptyRowsBottom <= 0) return
@@ -928,10 +859,6 @@ export class MiningGrid {
 
   private getBottomGapStartIndex(): number {
     return this.config.visibleRows - this.config.emptyRowsBottom
-  }
-
-  private getBottomActiveRowIndex(): number {
-    return Math.max(0, this.config.visibleRows - 1 - this.config.emptyRowsBottom)
   }
 
   /**
@@ -985,11 +912,11 @@ export class MiningGrid {
   }
 
   /**
-   * Subscribe to row cleared events
+   * Subscribe to grid cleared events
    */
-  onRowCleared(listener: GridEventListener<RowClearedEvent>): () => void {
-    this.rowClearedListeners.add(listener)
-    return () => this.rowClearedListeners.delete(listener)
+  onGridCleared(listener: GridEventListener<GridClearedEvent>): () => void {
+    this.gridClearedListeners.add(listener)
+    return () => this.gridClearedListeners.delete(listener)
   }
 
   /**
@@ -1049,7 +976,7 @@ export class MiningGrid {
     this.depthListeners.clear()
     this.blockDestroyedListeners.clear()
     this.oreCollectedListeners.clear()
-    this.rowClearedListeners.clear()
+    this.gridClearedListeners.clear()
     this.blockClickedListeners.clear()
     this.blockHoveredListeners.clear()
 
