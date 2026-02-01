@@ -277,11 +277,17 @@ export class MiningGrid {
     // Update visual on damage
     block.onDamage((event) => {
       if (!block.gameObject) return
-      const newColor = getDamageColor(block.baseColor, event.hpPercent)
       if (block.gameObject instanceof Phaser.GameObjects.Rectangle) {
+        const newColor = getDamageColor(block.baseColor, event.hpPercent)
         block.gameObject.setFillStyle(newColor)
-      } else if (!isOreBlock(block) && 'setTint' in block.gameObject) {
-        block.gameObject.setTint(newColor)
+        return
+      }
+
+      if ('setTexture' in block.gameObject) {
+        const textureKey = this.getTerrainTextureKey(block, event.hpPercent)
+        if (textureKey && block.gameObject.texture.key !== textureKey) {
+          block.gameObject.setTexture(textureKey)
+        }
       }
     })
 
@@ -373,7 +379,7 @@ export class MiningGrid {
     const x = col * this.config.blockSize + this.config.blockSize / 2
     const y = row * this.config.blockSize + this.config.blockSize / 2
 
-    const textureKey = this.getTerrainTextureKey(block)
+    const textureKey = this.getTerrainTextureKey(block, block.getHpPercent())
 
     if (textureKey && this.scene.textures.exists(textureKey)) {
       const frame = this.scene.add.rectangle(
@@ -458,11 +464,44 @@ export class MiningGrid {
     }
   }
 
-  private getTerrainTextureKey(block: Block): string | null {
+  private getTerrainTextureKey(block: Block, hpPercent = 1): string | null {
     const textures = this.config.terrainTextureKeys[block.type]
     if (!textures || textures.length === 0) return null
-    const index = Math.abs(block.x + block.y + block.depth) % textures.length
-    return textures[index]
+
+    const stage = this.getDamageStageIndex(block, hpPercent, textures.length)
+    return textures[stage] ?? textures[0] ?? null
+  }
+
+  private getDamageStageIndex(block: Block, hpPercent: number, variants: number): number {
+    if (variants <= 1) return 0
+
+    const clamped = Math.max(0, Math.min(1, hpPercent))
+    const baseStage = Math.min(variants - 1, Math.floor((1 - clamped) * variants))
+    if (baseStage === 0) return 0
+
+    const offset = this.getDamageStageOffset(block, variants)
+    const adjusted = Math.max(baseStage, baseStage + offset)
+    return Math.max(0, Math.min(variants - 1, adjusted))
+  }
+
+  private getDamageStageOffset(block: Block, variants: number): number {
+    if (variants < 3) return 0
+
+    const typeSeed: Record<BlockType, number> = {
+      [BlockType.DIRT]: 1,
+      [BlockType.STONE]: 2,
+      [BlockType.HARD_ROCK]: 3,
+      [BlockType.DENSE_ROCK]: 4,
+      [BlockType.ANCIENT_STONE]: 5
+    }
+
+    const seed =
+      (block.x * 73856093) ^ (block.y * 19349663) ^ (block.depth * 83492791) ^ typeSeed[block.type]
+
+    const mod = Math.abs(seed) % 4
+    if (mod === 0) return -1
+    if (mod === 3) return 1
+    return 0
   }
 
   private createRarityOverlay(
@@ -473,6 +512,7 @@ export class MiningGrid {
     if (isOreBlock(block)) return null
 
     const overlayAlphaByType: Record<BlockType, { fill: number; stroke: number }> = {
+      [BlockType.DIRT]: { fill: 0.03, stroke: 0.14 },
       [BlockType.STONE]: { fill: 0.05, stroke: 0.2 },
       [BlockType.HARD_ROCK]: { fill: 0.1, stroke: 0.28 },
       [BlockType.DENSE_ROCK]: { fill: 0.14, stroke: 0.34 },

@@ -26,8 +26,9 @@ function getDepthTier(depth: number) {
  * Get a random block type appropriate for the given depth.
  * Uses weighted random selection based on depth tier configuration.
  *
- * Depth ranges from GDD:
- * - 0-24: 100% Stone
+ * Depth ranges from current tuning:
+ * - 0-9: 70% Dirt, 30% Stone
+ * - 10-24: 40% Dirt, 60% Stone
  * - 25-49: 70% Stone, 30% Hard Rock
  * - 50-99: 40% Stone, 40% Hard Rock, 20% Dense Rock
  * - 100+: 20% Stone, 30% Hard Rock, 30% Dense Rock, 20% Ancient Stone
@@ -44,7 +45,7 @@ export function getTerrainTypeForDepth(depth: number): BlockType {
     if (weight && weight > 0) {
       weightedItems.push({
         item: type as BlockType,
-        weight,
+        weight
       })
     }
   }
@@ -60,15 +61,10 @@ export function getTerrainTypeForDepth(depth: number): BlockType {
  * @param depth - Depth level
  * @returns Array of block types with their percentage chance
  */
-export function getTerrainDistribution(
-  depth: number
-): Array<{ type: BlockType; chance: number }> {
+export function getTerrainDistribution(depth: number): Array<{ type: BlockType; chance: number }> {
   const tier = getDepthTier(depth)
 
-  const totalWeight = Object.values(tier.weights).reduce(
-    (sum, w) => sum + (w ?? 0),
-    0
-  )
+  const totalWeight = Object.values(tier.weights).reduce((sum, w) => sum + (w ?? 0), 0)
 
   const result: Array<{ type: BlockType; chance: number }> = []
 
@@ -76,7 +72,7 @@ export function getTerrainDistribution(
     if (weight && weight > 0) {
       result.push({
         type: type as BlockType,
-        chance: weight / totalWeight,
+        chance: weight / totalWeight
       })
     }
   }

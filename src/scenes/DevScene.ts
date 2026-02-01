@@ -33,6 +33,10 @@ const TERRAIN_TILE_ASSETS: Record<string, string> = {
   terrain_stone_02: 'assets/tiles/terrain_48/stone_02.png',
   terrain_stone_03: 'assets/tiles/terrain_48/stone_03.png',
   terrain_stone_04: 'assets/tiles/terrain_48/stone_04.png',
+  terrain_dirt_01: 'assets/tiles/terrain_48/dirt_01.png',
+  terrain_dirt_02: 'assets/tiles/terrain_48/dirt_02.png',
+  terrain_dirt_03: 'assets/tiles/terrain_48/dirt_03.png',
+  terrain_dirt_04: 'assets/tiles/terrain_48/dirt_04.png',
   terrain_hard_rock_01: 'assets/tiles/terrain_48/stone_hard_01.png',
   terrain_hard_rock_02: 'assets/tiles/terrain_48/stone_hard_02.png',
   terrain_hard_rock_03: 'assets/tiles/terrain_48/stone_hard_03.png',
@@ -44,12 +48,7 @@ const TERRAIN_TILE_ASSETS: Record<string, string> = {
   terrain_ancient_stone_01: 'assets/tiles/terrain_48/ancient_01.png',
   terrain_ancient_stone_02: 'assets/tiles/terrain_48/ancient_02.png',
   terrain_ancient_stone_03: 'assets/tiles/terrain_48/ancient_03.png',
-  terrain_ancient_stone_04: 'assets/tiles/terrain_48/ancient_04.png',
-  terrain_ancient_stone_05: 'assets/tiles/terrain_48/ancient_05.png',
-  terrain_ancient_stone_06: 'assets/tiles/terrain_48/ancient_06.png',
-  terrain_ancient_stone_07: 'assets/tiles/terrain_48/ancient_07.png',
-  terrain_ancient_stone_08: 'assets/tiles/terrain_48/ancient_08.png',
-  terrain_ancient_stone_09: 'assets/tiles/terrain_48/ancient_09.png'
+  terrain_ancient_stone_04: 'assets/tiles/terrain_48/ancient_04.png'
 }
 
 const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
@@ -59,6 +58,7 @@ const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
     'terrain_stone_03',
     'terrain_stone_04'
   ],
+  [BlockType.DIRT]: ['terrain_dirt_01', 'terrain_dirt_02', 'terrain_dirt_03', 'terrain_dirt_04'],
   [BlockType.HARD_ROCK]: [
     'terrain_hard_rock_01',
     'terrain_hard_rock_02',
@@ -75,12 +75,7 @@ const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
     'terrain_ancient_stone_01',
     'terrain_ancient_stone_02',
     'terrain_ancient_stone_03',
-    'terrain_ancient_stone_04',
-    'terrain_ancient_stone_05',
-    'terrain_ancient_stone_06',
-    'terrain_ancient_stone_07',
-    'terrain_ancient_stone_08',
-    'terrain_ancient_stone_09'
+    'terrain_ancient_stone_04'
   ]
 }
 
