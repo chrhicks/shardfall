@@ -18,7 +18,11 @@ export class OreBlock extends Block {
   private highlightGraphic: Phaser.GameObjects.Rectangle | null = null
   private highlightTween: Phaser.Tweens.Tween | null = null
 
-  private overlayGraphic: Phaser.GameObjects.Rectangle | null = null
+  private overlayGraphic:
+    | Phaser.GameObjects.Rectangle
+    | Phaser.GameObjects.Image
+    | Phaser.GameObjects.Sprite
+    | null = null
   private glowGraphic: Phaser.GameObjects.Rectangle | null = null
   private glowTween: Phaser.Tweens.Tween | null = null
 
@@ -61,11 +65,16 @@ export class OreBlock extends Block {
     }
   }
 
-  attachOverlayGraphic(graphic: Phaser.GameObjects.Rectangle): void {
+  attachOverlayGraphic(
+    graphic: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Image | Phaser.GameObjects.Sprite
+  ): void {
     this.overlayGraphic = graphic
   }
 
-  attachGlowGraphic(graphic: Phaser.GameObjects.Rectangle, tween?: Phaser.Tweens.Tween | null): void {
+  attachGlowGraphic(
+    graphic: Phaser.GameObjects.Rectangle,
+    tween?: Phaser.Tweens.Tween | null
+  ): void {
     this.glowGraphic = graphic
     this.glowTween = tween ?? null
   }

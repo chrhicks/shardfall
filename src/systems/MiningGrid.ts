@@ -9,7 +9,7 @@
 import { Scene } from 'phaser'
 import { Block, BlockFactory, OreBlock, isOreBlock } from '../objects'
 import { BlockType } from '../config/blocks'
-import { ORE_SPAWN_CHANCE, OreTier } from '../config/ores'
+import { ORE_SPAWN_CHANCE, OreTier, OreType } from '../config/ores'
 import {
   getTerrainTypeForDepth,
   getDamageColor,
@@ -17,8 +17,7 @@ import {
   rollChance,
   selectOreType,
   getOreTierColor,
-  lightenColor,
-  darkenColor
+  lightenColor
 } from '../utils'
 
 /** Grid configuration */
@@ -41,6 +40,8 @@ export interface MiningGridConfig {
   oreSpawnChance?: number
   /** Optional texture keys for terrain blocks */
   terrainTextureKeys?: Partial<Record<BlockType, string[]>>
+  /** Optional texture keys for ore overlays */
+  oreTextureKeys?: Partial<Record<OreType, string[]>>
 }
 
 const DEFAULT_CONFIG: Required<MiningGridConfig> = {
@@ -52,7 +53,8 @@ const DEFAULT_CONFIG: Required<MiningGridConfig> = {
   bufferRows: 1,
   emptyRowsBottom: 0,
   oreSpawnChance: ORE_SPAWN_CHANCE,
-  terrainTextureKeys: {}
+  terrainTextureKeys: {},
+  oreTextureKeys: {}
 }
 
 /** Event types emitted by MiningGrid */
@@ -579,17 +581,47 @@ export class MiningGrid {
     return { graphic: glow, tween }
   }
 
-  private createOreOverlay(
-    block: OreBlock,
-    x: number,
-    y: number
-  ): Phaser.GameObjects.Rectangle | null {
-    const overlaySize = Math.max(10, this.config.blockSize * 0.32)
-    const overlayColor = lightenColor(block.baseColor, 0.18)
-    const overlay = this.scene.add.rectangle(x, y, overlaySize, overlaySize, overlayColor, 0.9)
-    overlay.setRotation(Math.PI / 4)
-    overlay.setStrokeStyle(1, darkenColor(overlayColor, 0.2))
+  private createOreOverlay(block: OreBlock, x: number, y: number): Phaser.GameObjects.Image | null {
+    const textureKey = this.getOreTextureKey(block)
+    if (!textureKey || !this.scene.textures.exists(textureKey)) return null
+
+    const overlay = this.scene.add.image(x, y, textureKey)
+    overlay.setDisplaySize(this.config.blockSize, this.config.blockSize)
     return overlay
+  }
+
+  private getOreTextureKey(block: OreBlock): string | null {
+    const textures = this.config.oreTextureKeys[block.oreType]
+    if (!textures || textures.length === 0) return null
+
+    const index = this.getOreVariantIndex(block, textures.length)
+    return textures[index] ?? textures[0] ?? null
+  }
+
+  private getOreVariantIndex(block: OreBlock, variants: number): number {
+    if (variants <= 1) return 0
+
+    const oreSeed: Record<OreType, number> = {
+      [OreType.COAL]: 1,
+      [OreType.COPPER]: 2,
+      [OreType.TIN]: 3,
+      [OreType.IRON]: 4,
+      [OreType.SILVER]: 5,
+      [OreType.GOLD]: 6,
+      [OreType.PLATINUM]: 7,
+      [OreType.DIAMOND]: 8,
+      [OreType.RUBY]: 9,
+      [OreType.MYTHRIL]: 10,
+      [OreType.ADAMANTITE]: 11
+    }
+
+    const seed =
+      (block.x * 2654435761) ^
+      (block.y * 2246822519) ^
+      (block.depth * 3266489917) ^
+      oreSeed[block.oreType]
+
+    return Math.abs(seed) % variants
   }
 
   private createOreHighlight(

@@ -10,7 +10,7 @@
  */
 
 import { Scene } from 'phaser'
-import { OreType } from '../config'
+import { OreType } from '../config/ores'
 import { InventorySystem } from '../systems/InventorySystem'
 import { MiningGrid } from '../systems/MiningGrid'
 import { StatSystem } from '../systems/StatSystem'
@@ -49,6 +49,56 @@ const TERRAIN_TILE_ASSETS: Record<string, string> = {
   terrain_ancient_stone_02: 'assets/tiles/terrain_48/ancient_02.png',
   terrain_ancient_stone_03: 'assets/tiles/terrain_48/ancient_03.png',
   terrain_ancient_stone_04: 'assets/tiles/terrain_48/ancient_04.png'
+}
+
+const ORE_TILE_ASSETS: Record<string, string> = {
+  ore_coal_01: 'assets/tiles/ore_48/coal_01.png',
+  ore_coal_02: 'assets/tiles/ore_48/coal_02.png',
+  ore_coal_03: 'assets/tiles/ore_48/coal_03.png',
+  ore_copper_01: 'assets/tiles/ore_48/copper_01.png',
+  ore_copper_02: 'assets/tiles/ore_48/copper_02.png',
+  ore_copper_03: 'assets/tiles/ore_48/copper_03.png',
+  ore_tin_01: 'assets/tiles/ore_48/tin_01.png',
+  ore_tin_02: 'assets/tiles/ore_48/tin_02.png',
+  ore_tin_03: 'assets/tiles/ore_48/tin_03.png',
+  ore_iron_01: 'assets/tiles/ore_48/iron_01.png',
+  ore_iron_02: 'assets/tiles/ore_48/iron_02.png',
+  ore_iron_03: 'assets/tiles/ore_48/iron_03.png',
+  ore_silver_01: 'assets/tiles/ore_48/silver_01.png',
+  ore_silver_02: 'assets/tiles/ore_48/silver_02.png',
+  ore_silver_03: 'assets/tiles/ore_48/silver_03.png',
+  ore_gold_01: 'assets/tiles/ore_48/gold_01.png',
+  ore_gold_02: 'assets/tiles/ore_48/gold_02.png',
+  ore_gold_03: 'assets/tiles/ore_48/gold_03.png',
+  ore_platinum_01: 'assets/tiles/ore_48/platinum_01.png',
+  ore_platinum_02: 'assets/tiles/ore_48/platinum_02.png',
+  ore_platinum_03: 'assets/tiles/ore_48/platinum_03.png',
+  ore_diamond_01: 'assets/tiles/ore_48/diamond_01.png',
+  ore_diamond_02: 'assets/tiles/ore_48/diamond_02.png',
+  ore_diamond_03: 'assets/tiles/ore_48/diamond_03.png',
+  ore_ruby_01: 'assets/tiles/ore_48/ruby_01.png',
+  ore_ruby_02: 'assets/tiles/ore_48/ruby_02.png',
+  ore_ruby_03: 'assets/tiles/ore_48/ruby_03.png',
+  ore_mythril_01: 'assets/tiles/ore_48/mythril_01.png',
+  ore_mythril_02: 'assets/tiles/ore_48/mythril_02.png',
+  ore_mythril_03: 'assets/tiles/ore_48/mythril_03.png',
+  ore_adamantite_01: 'assets/tiles/ore_48/adamantite_01.png',
+  ore_adamantite_02: 'assets/tiles/ore_48/adamantite_02.png',
+  ore_adamantite_03: 'assets/tiles/ore_48/adamantite_03.png'
+}
+
+const ORE_TILE_KEYS: Record<OreType, string[]> = {
+  [OreType.COAL]: ['ore_coal_01', 'ore_coal_02', 'ore_coal_03'],
+  [OreType.COPPER]: ['ore_copper_01', 'ore_copper_02', 'ore_copper_03'],
+  [OreType.TIN]: ['ore_tin_01', 'ore_tin_02', 'ore_tin_03'],
+  [OreType.IRON]: ['ore_iron_01', 'ore_iron_02', 'ore_iron_03'],
+  [OreType.SILVER]: ['ore_silver_01', 'ore_silver_02', 'ore_silver_03'],
+  [OreType.GOLD]: ['ore_gold_01', 'ore_gold_02', 'ore_gold_03'],
+  [OreType.PLATINUM]: ['ore_platinum_01', 'ore_platinum_02', 'ore_platinum_03'],
+  [OreType.DIAMOND]: ['ore_diamond_01', 'ore_diamond_02', 'ore_diamond_03'],
+  [OreType.RUBY]: ['ore_ruby_01', 'ore_ruby_02', 'ore_ruby_03'],
+  [OreType.MYTHRIL]: ['ore_mythril_01', 'ore_mythril_02', 'ore_mythril_03'],
+  [OreType.ADAMANTITE]: ['ore_adamantite_01', 'ore_adamantite_02', 'ore_adamantite_03']
 }
 
 const TERRAIN_TILE_KEYS: Record<BlockType, string[]> = {
@@ -105,6 +155,9 @@ export class DevScene extends Scene {
     for (const [key, url] of Object.entries(TERRAIN_TILE_ASSETS)) {
       this.load.image(key, url)
     }
+    for (const [key, url] of Object.entries(ORE_TILE_ASSETS)) {
+      this.load.image(key, url)
+    }
   }
 
   create() {
@@ -155,7 +208,8 @@ export class DevScene extends Scene {
       centerX,
       topY,
       emptyRowsBottom,
-      terrainTextureKeys: TERRAIN_TILE_KEYS
+      terrainTextureKeys: TERRAIN_TILE_KEYS,
+      oreTextureKeys: ORE_TILE_KEYS
     })
 
     this.inventory = InventorySystem.getInstance()
